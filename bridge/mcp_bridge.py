@@ -56,6 +56,7 @@ def make_request(method: str, path: str, data: Optional[dict] = None) -> dict:
 
 def read_message() -> Optional[dict]:
     """Read JSON-RPC message from stdin."""
+    line = ""
     try:
         line = sys.stdin.readline()
         if not line:
@@ -314,6 +315,7 @@ def main():
     }
 
     while True:
+        msg = None
         try:
             msg = read_message()
             if msg is None:
