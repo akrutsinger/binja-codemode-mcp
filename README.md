@@ -4,28 +4,40 @@ A Model Context Protocol (MCP) server for [Binary Ninja](https://binary.ninja/) 
 
 ## Overview
 
-Instead of exposing discrete tools to the LLM, this server implements 
-[Anthropic's Code Execution pattern](https://www.anthropic.com/engineering/code-execution-with-mcp):
-the LLM writes Python code that executes against Binary Ninja's API.
+This plugin implements [Anthropic's Code Execution pattern](https://www.anthropic.com/engineering/code-execution-with-mcp). Instead of accessing the typical MCP "tools", the LLM writes Python code that executes directly against Binary Ninja's API. This approach ([described by Cloudflare as "Code Mode"](https://blog.cloudflare.com/code-mode/)) is more token-efficient and enables more complex multi-step analyses in a single execution.
 
-Cloudflare published a [blog post](https://blog.cloudflare.com/code-mode/) referring to their implementation as "Code Mode" hence the naming for this plugin.
+## Key Features
 
-According to Anthropic and Cloudflare, this approach is more token and context efficient and allows complex multi-step analyses in a single execution. I haven't benchmarked this myself, but it does feel more intuitive to write code than to issue discrete commands.
-
-## Features
-
-- **Code Execution**: Write Python that runs directly against Binary Ninja's API
-- **BINJA API Functions**: Query and mutate the binary database
-- **State Management**: Checkpoints and rollback available from the MCP client
-- **Workspace Files**: Persist intermediate results across executions
-- **Reusable Skills**: Save and load analysis code patterns
-- **Security**: Basic checks with API key authentication and some code validation
+- Write Python that runs directly against Binary Ninja's API
+- Query and mutate the binary database
+- Checkpoint/rollback, persistent workspace files, and reusable analysis patterns
+- Basic security with API key authentication and some code validation
 
 ## Installation
 
-### Binary Ninja Plugin
+### Method 1: Plugin Manager (Recommended)
 
-Copy to your Binary Ninja [plugins](https://docs.binary.ninja/guide/plugins.html) folder:
+1. In Binary Ninja, open the Plugin Manager (`Plugins > Manage Plugins`)
+2. Search for `Code Mode MCP` or `binja_codemode_mcp`
+3. Click `Install`
+4. Restart Binary Ninja
+
+After installation, the plugin will be located in the community [plugins](https://docs.binary.ninja/guide/plugins.html) folder:
+
+```bash
+# Linux
+~/.binaryninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/
+
+# macOS
+~/Library/Application Support/Binary Ninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/
+
+# Windows
+%APPDATA%\Binary Ninja\plugins\repositories\community\plugins\akrutsinger_binja_codemode_mcp\
+```
+
+### Method 2: Manual Installation
+
+Clone or download this repository and copy to your Binary Ninja [plugins](https://docs.binary.ninja/guide/plugins.html) folder:
 
 ```bash
 # Linux
@@ -38,10 +50,13 @@ cp -r plugin/ ~/Library/Application\ Support/Binary\ Ninja/plugins/binja_codemod
 copy plugin\ %APPDATA%\Binary Ninja\plugins\binja_codemode_mcp\
 ```
 
-### MCP Bridge Configuration (Quick Setup)
+## MCP Client Configuration
 
-Configure [Zed](https://zed.dev/)'s Custom MCP Server (`Agent Panel > ... > Add Custom Server...`):
+Configure your MCP client to communicate with the plugin. The path to `mcp_bridge.py` depends on your installation method.
 
+### For Plugin Manager Installation 
+
+[**Zed**](https://zed.dev/) (`Agent Panel > ... > Add Custom Server...`):
 ```json
 {
   /// The name of your MCP server
@@ -49,7 +64,7 @@ Configure [Zed](https://zed.dev/)'s Custom MCP Server (`Agent Panel > ... > Add 
     /// The command which runs the MCP server
     "command": "python3",
     /// The arguments to pass to the MCP server
-    "args": ["~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"],
+    "args": ["~/.binaryninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/bridge/mcp_bridge.py"],
     /// The environment variables to set
     "env": {
       "BINJA_MCP_URL": "http://127.0.0.1:42069",
@@ -59,14 +74,13 @@ Configure [Zed](https://zed.dev/)'s Custom MCP Server (`Agent Panel > ... > Add 
 }
 ```
 
-Configure [Claude Desktop](https://www.claude.com/download) (`Settings > Developer > Edit Config`):
-
+[**Claude Desktop**](https://www.claude.com/download) (`Settings > Developer > Edit Config`):
 ```json
 {
   "mcpServers": {
     "binja-codemode-mcp": {
       "command": "python3",
-      "args": ["~/Library/Application Support/Binary Ninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"],
+      "args": ["~/Library/Application Support/Binary Ninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/bridge/mcp_bridge.py"],
       "env": {
         "BINJA_MCP_URL": "http://127.0.0.1:42069",
         "BINJA_MCP_KEY": "binja-codemode-local"
@@ -76,48 +90,40 @@ Configure [Claude Desktop](https://www.claude.com/download) (`Settings > Develop
 }
 ```
 
-If running `bridge/mcp_bridge.py` directly (e.g., from the commandline instead of an MCP client), you will see some logging. These log messages are explicitly printed on `stderr` since the MCP bridge uses `stdout` for communication.
+**Note:** Use absolute paths. Replace `~` with your home directory path if needed, and adjust for your OS.
 
-To change the logging output level, set the environment variable `BINJA_MCP_LOG_LEVEL` to one of: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`.
+### For Manual Installation
 
-Example:
-```bash
-# Enable debug logging
-export BINJA_MCP_LOG_LEVEL=DEBUG
+Use these paths instead:
+- Linux: `~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py`
+- macOS: `~/Library/Application Support/Binary Ninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py`
+- Windows: `%APPDATA%\Binary Ninja\plugins\binja_codemode_mcp\bridge\mcp_bridge.py`
 
-# Or just info (default)
-export BINJA_MCP_LOG_LEVEL=INFO
+### Custom API Key (Optional)
 
-# Or warnings only
-export BINJA_MCP_LOG_LEVEL=WARNING
-```
-
-### MCP Bridge Configuration (Custom API Key)
-
-If you want a custom API key, create `~/.binaryninja/codemode_mcp/config.json`:
-
+To use a custom API key instead of the default API key, create `~/.binaryninja/codemode_mcp/config.json`:
 ```json
 {
   "api_key": "your-custom-key"
 }
 ```
 
-Then set the same key in your MCP client:
+Then update your MCP client config to use the same key in `BINJA_MCP_KEY`.
 
+### Logging Configuration (Optional)
+
+Set `BINJA_MCP_LOG_LEVEL` environment variable to control logging output (stderr):
+```bash
+# Options: DEBUG, INFO (default), WARNING, ERROR, CRITICAL
+export BINJA_MCP_LOG_LEVEL=DEBUG
+```
+
+Or add to your MCP client config:
 ```json
-{
-  /// The name of your MCP server
-  "binja-codemode-mcp": {
-    /// The command which runs the MCP server
-    "command": "python3",
-    /// The arguments to pass to the MCP server
-    "args": ["~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"],
-    /// The environment variables to set
-    "env": {
-      "BINJA_MCP_URL": "http://127.0.0.1:42069",
-      "BINJA_MCP_KEY": "your-custom-key"
-    }
-  }
+"env": {
+  "BINJA_MCP_URL": "http://127.0.0.1:42069",
+  "BINJA_MCP_KEY": "binja-codemode-local",
+  "BINJA_MCP_LOG_LEVEL": "DEBUG"
 }
 ```
 
@@ -125,20 +131,24 @@ Then set the same key in your MCP client:
 
 1. Open Binary Ninja and load a binary
 2. Start the server: `Plugins > MCP Code Mode > Start Server`
-3. Start prompting!
+3. In your MCP client (Claude, Zed, etc.), start prompting!
 
 ### Example Prompts
 ```
-"List all functions that reference memcpy and check if they validate sizes"
+"List all functions that reference memcpy and check if they validate buffer sizes"
 
-"Decompile the main function and identify potential buffer overflows"
+"Decompile main() and identify potential security issues"
 
 "Create a checkpoint, then rename all sub_* functions based on their behavior"
 
-"Find all string references and categorize them by type"
+"Find and categhorize all string references by type (URL, file path, error message, etc.)"
+
+"Analyze the binary's attack surface by examining input validation in network-facing functions"
 ```
 
 ## API Overview
+
+The Python code written by the LLM has access to the `binja` object with these methods:
 
 ### Query
 **Binary Info**
@@ -219,10 +229,12 @@ Then set the same key in your MCP client:
 
 A basic level of security in attempt to prevent some misuse:
 
-- Binds to localhost only (127.0.0.1)
-- Requires API key for all requests (can be set manually in `config.json`)
-- Simple command validation blocks potentially dangerous operations
-- Execution timeout (30s default)
+- Localhost-only binding (127.0.0.1)
+- API key authentication required
+- Simple code validation blocks potentially dangerous operations
+- 30-second execution timeout
+
+**Note:** This plugin does execute arbitrary Python code. Only use with trusted MCP clients and LLMs.
 
 ## License
 

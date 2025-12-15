@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - This changelog
 
+### Changed
+
+- Cleaned up the README and included community plugin installation information
+
 ### Fixed
 
 - Fix `mcp_bridge.py` variables to initialize before use
