@@ -15,7 +15,7 @@
     "Linux": "1. Install via Plugin Manager, or copy to ~/.binaryninja/plugins/",
     "Windows": "1. Install via Plugin Manager, or copy to %APPDATA%\\Binary Ninja\\plugins\\"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Austyn Krutsinger",
   "minimumbinaryninjaversion": 4000
 }

@@ -94,7 +94,7 @@ def handle_initialize(params: dict) -> dict:
         },
         "serverInfo": {
             "name": "binja-codemode-mcp",
-            "version": "0.1.1",
+            "version": "0.1.2",
         },
         "_meta": {
             "description": "Binary Ninja Code Mode MCP Server for LLM-assisted reverse engineering",
