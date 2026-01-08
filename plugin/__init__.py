@@ -5,6 +5,8 @@ BinjaCodeModeMCP - Main plugin class for Code Mode MCP Server.
 from binaryninja import PluginCommand
 from binaryninja.log import log_debug, log_error, log_info
 
+from .widget import update_status
+
 
 class BinjaCodeModeMCP:
     """
@@ -86,10 +88,12 @@ class BinjaCodeModeMCP:
             log_info(f"  API Key: {self._config.api_key}")
             log_info("=" * 42)
             log_info("Configure your MCP client with the above credentials.")
+            update_status(True)
         except Exception as e:
             log_error(f"Failed to start Code Mode MCP server: {e}")
             self._server = None
             self._config = None
+            update_status(False)
 
     def stop_server(self, bv):
         """Stop MCP server."""
@@ -102,6 +106,7 @@ class BinjaCodeModeMCP:
             self._server = None
             self._config = None
             log_info("Code Mode MCP server stopped.")
+            update_status(False)
         except Exception as e:
             log_error(f"Failed to stop Code Mode MCP server: {e}")
 
@@ -154,6 +159,3 @@ class BinjaCodeModeMCP:
             "Show server status and configuration",
             self.show_status,
         )
-
-
-# TODO: Add UIContexctNotification for OnViewChange to update the plugin's bv for a newly focused view
