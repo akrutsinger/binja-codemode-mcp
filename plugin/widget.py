@@ -5,12 +5,12 @@ Provides a clickable status indicator showing MCP server state.
 """
 
 from binaryninja import execute_on_main_thread
-from binaryninja.log import log_debug, log_error
+from binaryninja.log import log_debug, log_error, log_info
 
 try:
+    from binaryninjaui import UIContext, UIContextNotification
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
-    from binaryninjaui import UIContext, UIContextNotification
 
     _HAS_UI = True
 except ImportError:
@@ -44,7 +44,9 @@ def _create_status_button():
     _status_button.setCursor(Qt.PointingHandCursor)
     _status_button.setToolTip("Click to start/stop MCP server")
     _status_button.setContentsMargins(0, 0, 0, 0)
-    _status_button.setStyleSheet("margin:0; padding:0 6px; border:0; border-radius:1px;")
+    _status_button.setStyleSheet(
+        "margin:0; padding:0 6px; border:0; border-radius:1px;"
+    )
     _status_button.setText(_get_status_text(False))
     _status_button.clicked.connect(_on_button_click)
 
@@ -104,6 +106,34 @@ def _update_status_indicator():
     _status_button.setText(_get_status_text(running))
 
 
+def _on_file_closed(context, frame):
+    """Handle file closed by stopping MCP server if no binary views remain."""
+    global _plugin_instance
+
+    if _plugin_instance is None or not _plugin_instance.is_running:
+        return
+
+    # Check if there are any binary views still open after a delay
+    # This gives Binary Ninja time to switch to another tab if one exists
+    def delayed_check():
+        import time
+
+        time.sleep(0.3)  # Give the UI some time to update
+
+        active_bv = _get_active_binary_view()
+
+        if active_bv is None:
+            log_debug("MCP: No binary views remain, stopping server")
+            _plugin_instance.stop_server(None)
+        else:
+            log_debug("MCP: Binary views still open, keeping server running")
+
+    # Run the check in a background thread to avoid blocking
+    import threading
+
+    threading.Thread(target=delayed_check, daemon=True).start()
+
+
 def _ensure_indicator_in_status_bar():
     """Ensure the status indicator is present in the status bar."""
     global _status_container
@@ -155,6 +185,11 @@ class MCPUINotification(UIContextNotification):
     def OnViewChange(self, context, frame, type_name):
         """Called when the view changes."""
         execute_on_main_thread(lambda: _update_status_indicator())
+
+    def OnAfterCloseFile(self, context, file, frame):
+        """Called after a file is closed - stop MCP server if no views remain."""
+        log_debug("MCP Status: File closed, checking for remaining views")
+        execute_on_main_thread(lambda: _on_file_closed(context, frame))
 
 
 def init_status_indicator(plugin_instance):
