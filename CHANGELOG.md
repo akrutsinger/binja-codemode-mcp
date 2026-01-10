@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - File descriptor leak in output suppression context manager
 - Missing thread ID initialization in TUI app
+## [0.1.3] - 2026-01-08
+
+### Added
+
+- Status indicator for MCP server running state
+
+### Fixed
+
+- Plugin not running properly in headless mode
 
 ## [0.1.2] - 2025-12-18
 
