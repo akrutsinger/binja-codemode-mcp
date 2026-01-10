@@ -94,7 +94,7 @@ def handle_initialize(params: dict) -> dict:
         },
         "serverInfo": {
             "name": "binja-codemode-mcp",
-            "version": "0.1.2",
+            "version": "0.2.0",
         },
         "_meta": {
             "description": "Binary Ninja Code Mode MCP Server for LLM-assisted reverse engineering",
@@ -153,6 +153,47 @@ def handle_list_tools(params: dict) -> dict:
                     "required": ["name"],
                 },
             },
+            {
+                "name": "load_binary",
+                "description": "Load a binary file for analysis. Closes any previously loaded binary.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to binary or BNDB file",
+                        }
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "switch_binary",
+                "description": "Switch to a different loaded binary (headless mode only)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to binary to switch to",
+                        }
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "close_binary",
+                "description": "Close the current binary and free resources",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to binary to close (optional, defaults to active)",
+                        }
+                    },
+                },
+            },
         ]
     }
 
@@ -177,6 +218,15 @@ def handle_list_resources(params: dict) -> dict:
                 "description": (
                     "Current binary information and session state: "
                     "filename, architecture, platform, entry point, function count, address range"
+                ),
+                "mimeType": "application/json",
+            },
+            {
+                "uri": "binja://binaries",
+                "name": "Loaded Binaries",
+                "description": (
+                    "List of all loaded binaries in headless mode. "
+                    "Shows path, name, architecture, function count, and active status."
                 ),
                 "mimeType": "application/json",
             },
@@ -209,6 +259,7 @@ def handle_read_resource(params: dict) -> dict:
     endpoints = {
         "binja://api-reference": ("GET", "/stubs", "stubs"),
         "binja://status": ("GET", "/status", None),
+        "binja://binaries": ("GET", "/binaries", None),
         "binja://skills": ("GET", "/skills", None),
         "binja://files": ("GET", "/files", None),
     }
@@ -260,6 +311,52 @@ def handle_call_tool(params: dict) -> dict:
     elif name == "rollback":
         resp = make_request("POST", "/rollback", {"name": args.get("name", "")})
         return {"content": [{"type": "text", "text": resp.get("message", str(resp))}]}
+
+    elif name == "load_binary":
+        path = args.get("path", "")
+        if not path:
+            return {
+                "content": [{"type": "text", "text": "Error: 'path' is required"}],
+                "isError": True,
+            }
+        resp = make_request("POST", "/binary/load", {"path": path})
+        if "error" in resp:
+            return {
+                "content": [{"type": "text", "text": f"Error: {resp['error']}"}],
+                "isError": True,
+            }
+        binary_info = resp.get("binary", {})
+        text = (
+            f"Loaded: {resp.get('message', path)}\n"
+            f"Architecture: {binary_info.get('architecture', 'unknown')}\n"
+            f"Functions: {binary_info.get('function_count', 0)}"
+        )
+        return {"content": [{"type": "text", "text": text}]}
+
+    elif name == "switch_binary":
+        path = args.get("path", "")
+        if not path:
+            return {
+                "content": [{"type": "text", "text": "Error: 'path' is required"}],
+                "isError": True,
+            }
+        resp = make_request("POST", "/binary/switch", {"path": path})
+        if "error" in resp:
+            return {
+                "content": [{"type": "text", "text": f"Error: {resp['error']}"}],
+                "isError": True,
+            }
+        return {"content": [{"type": "text", "text": resp.get("message", "Switched")}]}
+
+    elif name == "close_binary":
+        path = args.get("path", "")
+        resp = make_request("POST", "/binary/close", {"path": path} if path else {})
+        if "error" in resp:
+            return {
+                "content": [{"type": "text", "text": f"Error: {resp['error']}"}],
+                "isError": True,
+            }
+        return {"content": [{"type": "text", "text": resp.get("message", "Closed")}]}
 
     return {
         "content": [{"type": "text", "text": f"Unknown tool: {name}"}],
