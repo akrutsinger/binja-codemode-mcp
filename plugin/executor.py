@@ -1,6 +1,7 @@
 """Code validation and execution for Code Mode MCP."""
 
 import ast
+import re
 import threading
 import time
 import traceback
@@ -55,6 +56,46 @@ _FORBIDDEN_ATTRIBUTES = frozenset(
         "__spec__",
     }
 )
+
+
+# Common attribute mistakes and their correct alternatives
+_API_SUGGESTIONS = {
+    "strings": "list_strings(limit=None, min_length=4)",
+    "functions": "list_functions(limit=None)",
+    "imports": "list_imports()",
+    "exports": "list_exports()",
+    "segments": "list_segments()",
+    "bv": "# binja IS the API - use binja.method() directly",
+    "binary_view": "# binja IS the API - use binja.method() directly",
+    "view": "# binja IS the API - use binja.method() directly",
+    "file": "get_binary_status()",
+    "filename": "get_binary_status()['filename']",
+    "arch": "get_binary_status()['architecture']",
+    "platform": "get_binary_status()['platform']",
+    "start": "get_binary_status()['start']",
+    "end": "get_binary_status()['end']",
+    "entry_point": "get_binary_status()['entry_point']",
+}
+
+
+def _get_api_hint(attr: str) -> str:
+    """Return helpful hint when an attribute is not found on BinjaAPI."""
+    hint_lines = ["\n\n--- API HINT ---"]
+
+    if attr in _API_SUGGESTIONS:
+        hint_lines.append(f"Instead of 'binja.{attr}', use: binja.{_API_SUGGESTIONS[attr]}")
+    else:
+        hint_lines.append(f"'binja.{attr}' does not exist.")
+
+    hint_lines.append("\nCommon methods:")
+    hint_lines.append("  binja.list_strings()      - Get all strings")
+    hint_lines.append("  binja.list_functions()    - Get all functions")
+    hint_lines.append("  binja.decompile(func)     - Decompile function")
+    hint_lines.append("  binja.get_xrefs_to(addr)  - Find cross-references")
+    hint_lines.append("  binja.get_binary_status() - Get binary info")
+    hint_lines.append("\nRead 'binja://api-reference' resource for full API.")
+
+    return "\n".join(hint_lines)
 
 
 class CodeValidator(ast.NodeVisitor):
@@ -218,6 +259,19 @@ class CodeExecutor:
         def run_code():
             try:
                 exec(code, restricted_globals, {})
+                result_holder["result"] = stdout_capture.getvalue()
+            except AttributeError as e:
+                err_msg = str(e)
+                hint = ""
+                # Check if the error is about BinjaAPI having no attribute
+                if "BinjaAPI" in err_msg and "has no attribute" in err_msg:
+                    # Extract attribute name: 'BinjaAPI' object has no attribute 'X'
+                    match = re.search(r"has no attribute '(\w+)'", err_msg)
+                    attr = match.group(1) if match else ""
+                    hint = _get_api_hint(attr)
+                result_holder["error"] = (
+                    f"{type(e).__name__}: {e}\n{traceback.format_exc()}{hint}"
+                )
                 result_holder["result"] = stdout_capture.getvalue()
             except Exception as e:
                 result_holder["error"] = (

@@ -57,6 +57,7 @@ class BinjaAPI:
         name_contains: str | None = None,
         has_calls_to: str | None = None,
         offset: int = 0,
+        exclude_sections: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """List functions with optional filtering and pagination.
 
@@ -67,6 +68,7 @@ class BinjaAPI:
             max_size: Maximum function size in bytes (default: None = no filter)
             name_contains: Filter by name substring (default: None = no filter)
             has_calls_to: Filter to functions that call this function name (default: None = no filter)
+            exclude_sections: List of section names to exclude (default: None)
 
         Returns:
             List of function dicts with name, address, size
@@ -93,7 +95,21 @@ class BinjaAPI:
                 if not calls_target:
                     continue
 
-            results.append({"name": f.name, "address": f.start, "size": f.total_bytes})
+            # Section filtering
+            section_name = "N/A"
+            sections = self._bv.get_sections_at(f.start)
+            if sections:
+                section_name = sections[0].name
+
+            if exclude_sections and section_name in exclude_sections:
+                continue
+
+            results.append({
+                "name": f.name,
+                "address": f.start,
+                "size": f.total_bytes,
+                "section": section_name
+            })
 
         # Apply pagination
         if offset:
@@ -325,8 +341,15 @@ class BinjaAPI:
 
         return result
 
-    def get_assembly(self, func: str | int) -> str | None:
-        """Get disassembly for function."""
+    def get_assembly(
+        self, func: str | int, max_lines: int | None = None
+    ) -> str | None:
+        """Get disassembly for function.
+
+        Args:
+            func: Function name or address
+            max_lines: Maximum number of instruction lines to return (default: all)
+        """
         f = self._resolve_function(func)
         if not f:
             return None
@@ -336,6 +359,10 @@ class BinjaAPI:
             for instr in block.disassembly_text:
                 text = "".join(t.text for t in instr.tokens)
                 lines.append(f"{instr.address:#x}: {text}")
+                if max_lines and len(lines) >= max_lines:
+                    break
+            if max_lines and len(lines) >= max_lines:
+                break
         return "\n".join(lines)
 
     def get_xrefs_to(self, func: str | int) -> list[dict]:
@@ -567,7 +594,7 @@ class BinjaAPI:
         return results
 
     def list_strings(
-        self, limit: int | None, min_length: int = 4, offset: int = 0
+        self, limit: int | None = None, min_length: int = 4, offset: int = 0
     ) -> list[dict]:
         """List strings in binary with pagination.
 

@@ -74,7 +74,7 @@ binja.list_data_items() -> list[dict]  # [{name, address}, ...]
 
 # Code Analysis
 binja.decompile(func: str|int, il_level="hlil") -> str|None  # il_level: "hlil"|"mlil"|"llil"
-binja.get_assembly(func: str|int) -> str|None
+binja.get_assembly(func: str|int, max_lines=None) -> str|None
 binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, end, length, instruction_count}, ...]
 
 # Cross References
