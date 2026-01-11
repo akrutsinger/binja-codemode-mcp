@@ -139,9 +139,17 @@ Or add to your MCP client config:
 
 "Decompile main() and identify potential security issues"
 
+"Search all decompiled code for malloc calls without corresponding free"
+
+"Find all call chains from main to a suspicious function at 0x401234"
+
 "Create a checkpoint, then rename all sub_* functions based on their behavior"
 
-"Find and categhorize all string references by type (URL, file path, error message, etc.)"
+"Get the control flow graph for the authentication function and identify loops"
+
+"Patch the license check at 0x403000 to always return true"
+
+"Find and categorize all string references by type (URL, file path, error message, etc.)"
 
 "Analyze the binary's attack surface by examining input validation in network-facing functions"
 ```
@@ -166,12 +174,15 @@ The Python code written by the LLM has access to the `binja` object with these m
 - `binja.decompile()` - Get pseudocode
 - `binja.get_assembly()` - Get disassembly
 - `binja.get_basic_blocks()` - Basic function info
+- `binja.get_control_flow_graph()` - Get CFG nodes and edges
 
 **Cross References**
 - `binja.get_xrefs_to()` - Find callers
 - `binja.get_function_calls()` - Find callees
 - `binja.get_data_xrefs_to()` - Data references to address
 - `binja.get_data_xrefs_from()` - Data references from address
+- `binja.get_all_xrefs()` - Get all code/data xrefs to/from address
+- `binja.find_xref_chains()` - Find call chains between functions
 
 **Data Reading**
 - `binja.read_bytes()` - Read raw bytes
@@ -182,6 +193,7 @@ The Python code written by the LLM has access to the `binja` object with these m
 
 **Search & Lookup**
 - `binja.find_bytes()` - Search for byte pattern
+- `binja.search_decompiled()` - Search in decompiled HLIL code
 - `binja.function_at()` - Get function by address or name
 - `binja.get_comment()` - Get comment
 - `binja.get_function_comment()` - Get function comment
@@ -193,17 +205,24 @@ The Python code written by the LLM has access to the `binja` object with these m
 - `binja.rename_function(func, name)` - Rename function
 - `binja.rename_data()` - Rename data
 - `binja.rename_variable(func, old, new)` - Rename variable
+- `binja.bulk_rename()` - Batch rename multiple items
 
 **Typing**
 - `binja.retype_variable()` - Retype variable
 - `binja.define_type()` - Define struct/type
 - `binja.set_function_signature()` - Set prototype
+- `binja.batch_set_types()` - Batch update types
 
 **Comments**
 - `binja.set_comment()` - Add comment
 - `binja.set_function_comment()` - Add function comment
 - `binja.delete_comment()` - Delete comment
 - `binja.delete_function_comment()` - Delete function comment
+
+**Binary Patching**
+- `binja.patch_bytes()` - Patch bytes at address
+- `binja.nop_range()` - NOP out instruction range
+- `binja.assemble_at()` - Assemble and patch instructions
 
 ### Workspace
 

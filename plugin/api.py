@@ -377,6 +377,118 @@ class BinjaAPI:
             results.append({"to_address": ref})
         return results
 
+    def get_all_xrefs(
+        self, addr: int, include_data: bool = True, include_code: bool = True
+    ) -> dict:
+        """Get all cross-references (both code and data) to/from an address.
+
+        Args:
+            addr: Address to analyze
+            include_data: Include data references (default: True)
+            include_code: Include code references (default: True)
+
+        Returns:
+            dict with 'to' and 'from' lists of references
+            {
+                'address': addr,
+                'xrefs_to': [{type: 'code'|'data', from_address, from_function}, ...],
+                'xrefs_from': [{type: 'code'|'data', to_address, to_function}, ...]
+            }
+        """
+        xrefs_to = []
+        xrefs_from = []
+
+        # Code xrefs TO this address
+        if include_code:
+            for ref in self._bv.get_code_refs(addr):
+                caller = self._bv.get_functions_containing(ref.address)
+                xrefs_to.append(
+                    {
+                        "type": "code",
+                        "from_address": ref.address,
+                        "from_function": caller[0].name if caller else None,
+                    }
+                )
+
+        # Data xrefs TO this address
+        if include_data:
+            for ref in self._bv.get_data_refs_from(addr):
+                xrefs_from.append({"type": "data", "to_address": ref})
+
+        # Get function at address for data refs FROM
+        funcs = self._bv.get_functions_containing(addr)
+        if funcs and include_data:
+            for ref in self._bv.get_data_refs(addr):
+                target_funcs = self._bv.get_functions_containing(ref)
+                xrefs_from.append(
+                    {
+                        "type": "data",
+                        "to_address": ref,
+                        "to_function": target_funcs[0].name if target_funcs else None,
+                    }
+                )
+
+        return {"address": addr, "xrefs_to": xrefs_to, "xrefs_from": xrefs_from}
+
+    def find_xref_chains(
+        self, from_addr: int, to_addr: int, max_depth: int = 5
+    ) -> list[list[dict]]:
+        """Find call chains between two addresses.
+
+        Args:
+            from_addr: Starting address/function
+            to_addr: Target address/function
+            max_depth: Maximum chain depth (default: 5)
+
+        Returns:
+            List of call chains, each chain is a list of dicts
+            [[{function, address}, ...], ...]
+        """
+        # Get functions at addresses
+        from_funcs = self._bv.get_functions_containing(from_addr)
+        to_funcs = self._bv.get_functions_containing(to_addr)
+
+        if not from_funcs or not to_funcs:
+            return []
+
+        start_func = from_funcs[0]
+        target_func = to_funcs[0]
+
+        # BFS to find paths
+        chains = []
+        visited = set()
+        queue = [
+            ([{"function": start_func.name, "address": start_func.start}], start_func)
+        ]
+
+        while queue and len(chains) < 100:  # Limit results
+            path, current_func = queue.pop(0)
+
+            if len(path) > max_depth:
+                continue
+
+            if current_func.start == target_func.start:
+                chains.append(path)
+                continue
+
+            # Avoid cycles
+            if current_func.start in visited:
+                continue
+            visited.add(current_func.start)
+
+            # Explore callees
+            for callee in current_func.callees:
+                # Validate that the callee is actually a valid function This prevents Binary Ninja
+                # warnings for invalid references (e.g., data misinterpreted as function pointers,
+                # or addresses outside valid memory regions in bare metal firmware)
+                if not self._bv.get_functions_containing(callee.start):
+                    continue
+
+                new_path = path + [{"function": callee.name, "address": callee.start}]
+                queue.append((new_path, callee))
+
+        return chains
+
     def function_at(self, addr: int | str) -> str | None:
         """Get function name containing address.
 
@@ -599,6 +711,120 @@ class BinjaAPI:
 
         return results
 
+    def search_decompiled(
+        self, pattern: str, regex: bool = False, limit: int | None = 100
+    ) -> list[dict]:
+        """Search for pattern in decompiled HLIL code across all functions.
+
+        Args:
+            pattern: Text pattern to search for
+            regex: If True, treat pattern as regex (default: False)
+            limit: Maximum results to return (default: 100, None = unlimited)
+
+        Returns:
+            List of matches: [{function, address, line_number, matched_line}, ...]
+        """
+        import re as regex_module
+
+        results = []
+        pattern_lower = pattern.lower() if not regex else pattern
+
+        try:
+            compiled_pattern = (
+                regex_module.compile(pattern, regex_module.IGNORECASE)
+                if regex
+                else None
+            )
+        except regex_module.error:
+            return []
+
+        for func in self._bv.functions:
+            if not func.hlil:
+                continue
+
+            try:
+                # Get HLIL lines
+                for line_num, line in enumerate(func.hlil.root.lines, 1):
+                    line_text = str(line)
+
+                    # Check for match
+                    matched = False
+                    if regex and compiled_pattern:
+                        matched = compiled_pattern.search(line_text) is not None
+                    else:
+                        matched = pattern_lower in line_text.lower()
+
+                    if matched:
+                        results.append(
+                            {
+                                "function": func.name,
+                                "address": func.start,
+                                "line_number": line_num,
+                                "matched_line": line_text.strip(),
+                            }
+                        )
+
+                        if limit is not None and len(results) >= limit:
+                            return results
+            except Exception:
+                continue
+
+        return results
+
+    def get_control_flow_graph(self, func: str | int) -> dict | None:
+        """Get control flow graph structure for function.
+
+        Args:
+            func: Function name or address
+
+        Returns:
+            dict with 'nodes' and 'edges' lists, or None if function not found
+            {
+                'function': name,
+                'address': addr,
+                'nodes': [{id, start, end, length}, ...],
+                'edges': [{from_id, to_id, type}, ...]
+            }
+        """
+        f = self._resolve_function(func)
+        if not f:
+            return None
+
+        nodes = []
+        edges = []
+        block_map = {}
+
+        # Build nodes
+        for idx, block in enumerate(f.basic_blocks):
+            node_id = idx
+            block_map[block.start] = node_id
+            nodes.append(
+                {
+                    "id": node_id,
+                    "start": block.start,
+                    "end": block.end,
+                    "length": block.length,
+                }
+            )
+
+        # Build edges
+        for block in f.basic_blocks:
+            from_id = block_map[block.start]
+            for edge in block.outgoing_edges:
+                to_id = block_map.get(edge.target.start)
+                if to_id is not None:
+                    edge_type = str(edge.type).split(".")[-1].lower()
+                    edges.append(
+                        {"from_id": from_id, "to_id": to_id, "type": edge_type}
+                    )
+
+        return {
+            "function": f.name,
+            "address": f.start,
+            "nodes": nodes,
+            "edges": edges,
+        }
+
     # =========================================================================
     # Mutation Operations (tracked)
     # =========================================================================
@@ -693,6 +919,105 @@ class BinjaAPI:
         self._state.record_change(f"delete comment on {f.name}")
         return True
 
+    def bulk_rename(
+        self, mapping: dict[str, str], target_type: str = "function"
+    ) -> dict:
+        """Rename multiple items at once.
+
+        Args:
+            mapping: Dict of {old_name: new_name}
+            target_type: Type of items to rename - 'function', 'data', or 'variable'
+
+        Returns:
+            dict with 'success_count', 'failed', 'total'
+            {
+                'success_count': int,
+                'failed': [{old_name, new_name, error}, ...],
+                'total': int
+            }
+        """
+        results = {"success_count": 0, "failed": [], "total": len(mapping)}
+
+        for old_name, new_name in mapping.items():
+            try:
+                if target_type == "function":
+                    success = self.rename_function(old_name, new_name)
+                elif target_type == "data":
+                    # Try to parse as address
+                    try:
+                        addr = (
+                            int(old_name, 16)
+                            if old_name.startswith("0x")
+                            else int(old_name)
+                        )
+                        success = self.rename_data(addr, new_name)
+                    except ValueError:
+                        success = False
+                else:
+                    success = False
+
+                if success:
+                    results["success_count"] += 1
+                else:
+                    results["failed"].append(
+                        {
+                            "old_name": old_name,
+                            "new_name": new_name,
+                            "error": "Rename failed",
+                        }
+                    )
+            except Exception as e:
+                results["failed"].append(
+                    {"old_name": old_name, "new_name": new_name, "error": str(e)}
+                )
+
+        return results
+
+    def batch_set_types(self, updates: list[dict]) -> dict:
+        """Apply multiple type changes at once.
+
+        Args:
+            updates: List of type updates, each dict should have:
+                     {type: 'function'|'variable', target: str|int, signature|var_type: str, ...}
+
+        Returns:
+            dict with 'success_count', 'failed', 'total'
+        """
+        results = {"success_count": 0, "failed": [], "total": len(updates)}
+
+        for update in updates:
+            try:
+                update_type = update.get("type")
+                target = update.get("target")
+
+                if update_type == "function":
+                    signature = update.get("signature")
+                    if signature:
+                        success = self.set_function_signature(target, signature)
+                    else:
+                        success = False
+                elif update_type == "variable":
+                    func = update.get("function")
+                    var_name = update.get("variable")
+                    var_type = update.get("var_type")
+                    if func and var_name and var_type:
+                        success = self.retype_variable(func, var_name, var_type)
+                    else:
+                        success = False
+                else:
+                    success = False
+
+                if success:
+                    results["success_count"] += 1
+                else:
+                    results["failed"].append(
+                        {"update": update, "error": "Type update failed"}
+                    )
+            except Exception as e:
+                results["failed"].append({"update": update, "error": str(e)})
+
+        return results
+
     def define_type(self, c_definition: str) -> bool:
         """Define type from C syntax."""
         try:
@@ -705,20 +1030,171 @@ class BinjaAPI:
             return False
 
     def set_function_signature(self, func: str | int, signature: str) -> bool:
-        """Set function prototype."""
+        """Set function prototype.
+
+        Args:
+            func: Function name or address
+            signature: Function signature string (e.g., "int foo(char* bar)")
+
+        Returns:
+            True if signature was set successfully, False otherwise
+        """
         f = self._resolve_function(func)
         if not f:
             return False
 
         try:
-            parsed_type, _ = self._bv.parse_type_string(signature)
-            if parsed_type:
+            # parse_type_string returns (Type, str) where str is the name or (None, error_string) on
+            # failure
+            parsed_type, type_name = self._bv.parse_type_string(signature)
+
+            if parsed_type is not None:
                 f.type = parsed_type
                 self._state.record_change(f"signature on {f.name}: {signature}")
                 return True
         except Exception:
+            # If parsing fails entirely, fall through to False
             pass
+
         return False
+
+    def patch_bytes(self, addr: int, data: bytes) -> dict:
+        """Patch bytes at address in the binary.
+
+        Args:
+            addr: Address to patch
+            data: Bytes to write
+
+        Returns:
+            dict with 'success', 'original_bytes', 'patched_bytes', 'address'
+        """
+        try:
+            original = self._bv.read(addr, len(data))
+            if not original:
+                return {
+                    "success": False,
+                    "error": f"Failed to read at {addr:#x}",
+                    "address": addr,
+                }
+
+            # Perform the patch
+            wrote = self._bv.write(addr, data)
+            if wrote != len(data):
+                return {
+                    "success": False,
+                    "error": f"Partial write: {wrote}/{len(data)} bytes",
+                    "address": addr,
+                }
+
+            self._state.record_change(
+                f"patch {len(data)} bytes at {addr:#x}: {data.hex()}"
+            )
+
+            return {
+                "success": True,
+                "address": addr,
+                "original_bytes": original.hex(),
+                "patched_bytes": data.hex(),
+                "length": len(data),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e), "address": addr}
+
+    def nop_range(self, start: int, end: int) -> dict:
+        """NOP out a range of instructions.
+
+        Args:
+            start: Start address
+            end: End address (exclusive)
+
+        Returns:
+            dict with 'success', 'bytes_patched', 'start', 'end'
+        """
+        length = end - start
+        if length <= 0:
+            return {
+                "success": False,
+                "error": "Invalid range: end must be > start",
+                "start": start,
+                "end": end,
+            }
+
+        # Get architecture-appropriate NOP byte
+        arch = self._bv.arch
+        if arch:
+            # x86/x64 NOP is 0x90
+            if "x86" in arch.name.lower():
+                nop_byte = b"\x90"
+            # ARM NOP is typically mov r0, r0 (0x00 0x00 0xa0 0xe1) but use simple approach
+            elif "arm" in arch.name.lower():
+                nop_byte = b"\x00"
+            else:
+                nop_byte = b"\x00"
+        else:
+            nop_byte = b"\x00"
+
+        nop_data = nop_byte * length
+        result = self.patch_bytes(start, nop_data)
+
+        if result["success"]:
+            result["bytes_patched"] = length
+            result["start"] = start
+            result["end"] = end
+
+        return result
+
+    def assemble_at(self, addr: int, asm: str) -> dict:
+        """Assemble instructions and patch at address.
+
+        Args:
+            addr: Address to patch
+            asm: Assembly instruction(s) as string (e.g., "mov eax, 1; ret")
+
+        Returns:
+            dict with 'success', 'assembled_bytes', 'address', 'instructions'
+        """
+        try:
+            arch = self._bv.arch
+            if not arch:
+                return {
+                    "success": False,
+                    "error": "No architecture available",
+                    "address": addr,
+                }
+
+            # Assemble the instruction(s)
+            # Note: arch.assemble() returns (bytes, error_msg) where:
+            #   - On success: (bytes_object, None or '')
+            #   - On failure: (None, error_code_int) or (empty_bytes, error_code)
+            assembled_bytes, error_msg = arch.assemble(asm, addr)
+
+            # Check if assembly produced valid bytes. assembled_bytes could be None, empty bytes, or
+            # (incorrectly) an int
+            if not assembled_bytes:
+                error_detail = error_msg if error_msg else "Assembly produced no bytes"
+                return {
+                    "success": False,
+                    "error": f"Assembly failed: {error_detail}",
+                    "address": addr,
+                    "assembly": asm,
+                }
+
+            # Patch the bytes
+            patch_result = self.patch_bytes(addr, assembled_bytes)
+
+            if patch_result["success"]:
+                patch_result["assembly"] = asm
+                patch_result["instructions"] = asm.split(";")
+
+            return patch_result
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "address": addr,
+                "assembly": asm,
+            }
 
     # =========================================================================
     # Workspace Operations

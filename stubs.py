@@ -52,12 +52,14 @@ def generate_api_stubs(
 # Functions accept name (str) or address (int) where marked str|int.
 
 # QUICK START:
-binja.list_functions(limit=10)              # List first 10 functions
-binja.decompile("main")                     # Decompile function
-binja.get_xrefs_to(0x401000)                # Find callers
-binja.get_function_calls("process_packet")  # Find callees
-binja.find_bytes(b"\\x48\\x89\\xe5")        # Search for byte pattern
-binja.write_file("notes.txt", "results")    # Save to workspace
+binja.list_functions(limit=10)                    # List first 10 functions
+binja.decompile("main")                           # Decompile function
+binja.search_decompiled("malloc")                 # Search decompiled code
+binja.get_xrefs_to(0x401000)                      # Find callers
+binja.find_xref_chains(0x401000, 0x403000)        # Find call paths
+binja.get_control_flow_graph("vulnerable_func")  # Get CFG structure
+binja.patch_bytes(0x401234, b"\\x90\\x90")        # Patch binary
+binja.write_file("notes.txt", "results")          # Save to workspace
 
 ## QUERY (READ-ONLY)
 
@@ -76,12 +78,15 @@ binja.list_data_items() -> list[dict]  # [{name, address}, ...]
 binja.decompile(func: str|int, il_level="hlil") -> str|None  # il_level: "hlil"|"mlil"|"llil"
 binja.get_assembly(func: str|int) -> str|None
 binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, end, length, instruction_count}, ...]
+binja.get_control_flow_graph(func: str|int) -> dict|None  # {function, address, nodes: [{id, start, end, length}], edges: [{from_id, to_id, type}]}
 
 # Cross References
 binja.get_xrefs_to(func: str|int) -> list[dict]         # [{from_function, from_address}, ...] - who calls this?
 binja.get_function_calls(func: str|int) -> list[dict]   # [{to_function, to_address}, ...] - what does this call?
 binja.get_data_xrefs_to(addr: int) -> list[dict]        # [{from_function, from_address}, ...]
 binja.get_data_xrefs_from(addr: int) -> list[dict]      # [{to_address}, ...]
+binja.get_all_xrefs(addr: int, include_data=True, include_code=True) -> dict  # {address, xrefs_to: [{type, from_address, from_function}], xrefs_from: [...]}
+binja.find_xref_chains(from_addr: int, to_addr: int, max_depth=5) -> list[list[dict]]  # Find call chains: [[{function, address}, ...], ...]
 
 # Data Reading
 binja.read_bytes(addr: int, length: int) -> bytes|None
@@ -92,28 +97,36 @@ binja.list_strings(limit=None, min_length=4, offset=0) -> list[dict]  # [{addres
 
 # Search & Lookup
 binja.find_bytes(pattern: bytes, start=None, end=None, limit=100) -> list[int]  # Returns up to 100 addresses by default
+binja.search_decompiled(pattern: str, regex=False, limit=100) -> list[dict]  # Search in HLIL code: [{function, address, line_number, matched_line}, ...]
 binja.function_at(addr: int|str) -> str|None  # Function name containing address
 binja.get_comment(addr: int) -> str|None
 binja.get_function_comment(func: str|int) -> str|None
 binja.get_type(name: str) -> str|None  # User-defined type definition
 
-## MUTATIONS (return bool, tracked for rollback)
+## MUTATIONS (tracked for rollback)
 
 # Renaming
 binja.rename_function(func: str|int, new_name: str) -> bool
 binja.rename_data(addr: int, new_name: str) -> bool
 binja.rename_variable(func: str|int, old_name: str, new_name: str) -> bool
+binja.bulk_rename(mapping: dict[str, str], target_type="function") -> dict  # Batch rename; returns {success_count, failed, total}
 
 # Typing
 binja.retype_variable(func: str|int, var_name: str, new_type: str) -> bool
 binja.define_type(c_definition: str) -> bool  # Ex: "struct pkt { uint32_t id; char data[64]; }"
 binja.set_function_signature(func: str|int, signature: str) -> bool  # Ex: "int proc(char* buf, size_t len)"
+binja.batch_set_types(updates: list[dict]) -> dict  # Batch type updates; returns {success_count, failed, total}
 
 # Comments
 binja.set_comment(addr: int, comment: str) -> bool
 binja.set_function_comment(func: str|int, comment: str) -> bool
 binja.delete_comment(addr: int) -> bool
 binja.delete_function_comment(func: str|int) -> bool
+
+# Binary Patching
+binja.patch_bytes(addr: int, data: bytes) -> dict  # {success, address, original_bytes, patched_bytes, length}
+binja.nop_range(start: int, end: int) -> dict  # NOP out instruction range; {success, bytes_patched, start, end}
+binja.assemble_at(addr: int, asm: str) -> dict  # Assemble and patch; {success, assembly, assembled_bytes, address}
 
 ## WORKSPACE (file persistence)
 binja.write_file(name: str, content: str) -> bool
