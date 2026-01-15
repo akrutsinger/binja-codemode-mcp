@@ -258,7 +258,8 @@ class CodeExecutor:
 
         def run_code():
             try:
-                exec(code, restricted_globals, {})
+                # Use same dict for globals and locals to fix scoping issues for nested functions
+                exec(code, restricted_globals, restricted_globals)
                 result_holder["result"] = stdout_capture.getvalue()
             except AttributeError as e:
                 err_msg = str(e)
