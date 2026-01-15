@@ -34,6 +34,43 @@ class BinjaAPI:
         self._skills = skills
 
     # =========================================================================
+    # BinaryView-Style Property Aliases
+    # =========================================================================
+
+    @property
+    def functions(self) -> list[dict[str, Any]]:
+        """BinaryView-style property alias for list_functions()."""
+        return self.list_functions()
+
+    @property
+    def strings(self) -> list[dict]:
+        """BinaryView-style property alias for list_strings()."""
+        return self.list_strings(limit=None)
+
+    @property
+    def file(self) -> dict[str, Any]:
+        """BinaryView-style property alias for binary info."""
+        return {
+            "filename": self._bv.file.filename,
+            "original_filename": self._bv.file.original_filename,
+        }
+
+    @property
+    def start(self) -> int:
+        """Start address of the binary."""
+        return self._bv.start
+
+    @property
+    def end(self) -> int:
+        """End address of the binary."""
+        return self._bv.end
+
+    @property
+    def entry_point(self) -> int:
+        """Entry point address."""
+        return self._bv.entry_point
+
+    # =========================================================================
     # Query Operations (read-only)
     # =========================================================================
 
@@ -93,7 +130,7 @@ class BinjaAPI:
                 if not calls_target:
                     continue
 
-            results.append({"name": f.name, "address": f.start, "size": f.total_bytes})
+            results.append({"name": f.name, "address": f.start, "address_hex": f"{f.start:#x}", "size": f.total_bytes})
 
         # Apply pagination
         if offset:
@@ -181,6 +218,7 @@ class BinjaAPI:
                 {
                     "name": sym.name,
                     "address": sym.address,
+                    "address_hex": f"{sym.address:#x}",
                     "namespace": sym.namespace if sym.namespace else None,
                 }
             )
@@ -199,7 +237,7 @@ class BinjaAPI:
         results = []
         for sym in self._bv.get_symbols_of_type(SymbolType.FunctionSymbol):
             if sym.binding == SymbolBinding.GlobalBinding:
-                results.append({"name": sym.name, "address": sym.address})
+                results.append({"name": sym.name, "address": sym.address, "address_hex": f"{sym.address:#x}"})
 
         if offset:
             results = results[offset:]
@@ -213,7 +251,9 @@ class BinjaAPI:
         results = [
             {
                 "start": seg.start,
+                "start_hex": f"{seg.start:#x}",
                 "end": seg.end,
+                "end_hex": f"{seg.end:#x}",
                 "length": seg.length,
                 "readable": seg.readable,
                 "writable": seg.writable,
@@ -268,16 +308,25 @@ class BinjaAPI:
                 {
                     "name": sym.name,
                     "address": sym.address,
+                    "address_hex": f"{sym.address:#x}",
                 }
             )
         return results
 
-    def decompile(self, func: str | int, il_level: str = "hlil") -> str | None:
+    def decompile(
+        self,
+        func: str | int,
+        il_level: str = "hlil",
+        start_line: int = 0,
+        max_lines: int | None = None,
+    ) -> str | None:
         """Decompile function to C-like pseudocode.
 
         Args:
             func: Function name or address
             il_level: IL level - "hlil" (high), "mlil" (medium), or "llil" (low)
+            start_line: First line to return (0-indexed, for paging large functions)
+            max_lines: Maximum lines to return (None = all)
 
         Returns:
             Decompiled code or None if function not found
@@ -321,12 +370,37 @@ class BinjaAPI:
 
         lines.append("}")
 
+        # Apply paging
+        total_lines = len(lines)
+        if start_line > 0:
+            lines = lines[start_line:]
+        if max_lines is not None:
+            lines = lines[:max_lines]
+
+        # Add paging info if truncated
+        if start_line > 0 or (max_lines is not None and start_line + len(lines) < total_lines):
+            lines.insert(0, f"// [Lines {start_line}-{start_line + len(lines) - 1} of {total_lines}]")
+
         result = "\n".join(lines)
 
         return result
 
-    def get_assembly(self, func: str | int) -> str | None:
-        """Get disassembly for function."""
+    def get_assembly(
+        self,
+        func: str | int,
+        start_line: int = 0,
+        max_lines: int | None = None,
+    ) -> str | None:
+        """Get disassembly for function.
+
+        Args:
+            func: Function name or address
+            start_line: First line to return (0-indexed, for paging large functions)
+            max_lines: Maximum lines to return (None = all)
+
+        Returns:
+            Disassembly or None if function not found
+        """
         f = self._resolve_function(func)
         if not f:
             return None
@@ -336,6 +410,18 @@ class BinjaAPI:
             for instr in block.disassembly_text:
                 text = "".join(t.text for t in instr.tokens)
                 lines.append(f"{instr.address:#x}: {text}")
+
+        # Apply paging
+        total_lines = len(lines)
+        if start_line > 0:
+            lines = lines[start_line:]
+        if max_lines is not None:
+            lines = lines[:max_lines]
+
+        # Add paging info if truncated
+        if start_line > 0 or (max_lines is not None and start_line + len(lines) < total_lines):
+            lines.insert(0, f"; [Lines {start_line}-{start_line + len(lines) - 1} of {total_lines}]")
+
         return "\n".join(lines)
 
     def get_xrefs_to(self, func: str | int) -> list[dict]:
@@ -352,6 +438,7 @@ class BinjaAPI:
                     {
                         "from_function": caller[0].name,
                         "from_address": ref.address,
+                        "from_address_hex": f"{ref.address:#x}",
                     }
                 )
         return results
@@ -366,25 +453,64 @@ class BinjaAPI:
                     {
                         "from_function": caller[0].name,
                         "from_address": ref.address,
+                        "from_address_hex": f"{ref.address:#x}",
                     }
                 )
         return results
 
     def get_data_xrefs_from(self, addr: int) -> list[dict]:
-        """Get data references from address."""
+        """Get data addresses referenced by code at this address.
+
+        Args:
+            addr: Code address to check for data references
+
+        Returns:
+            List of dicts with 'to_address' for each data location referenced
+        """
         results = []
-        for ref in self._bv.get_data_refs(addr):
+        for ref in self._bv.get_data_refs_from(addr):
             results.append({"to_address": ref})
         return results
 
-    def function_at(self, addr: int | str) -> str | None:
-        """Get function name containing address.
+    def get_xrefs_from(self, addr: int) -> list[dict]:
+        """Get cross-references from an address (what does this code call/reference?).
+
+        Args:
+            addr: Address to check for outgoing references
+
+        Returns:
+            List of dicts with 'to_address', 'to_address_hex', optionally 'to_function', and 'type'
+        """
+        results = []
+
+        # Code references (calls, jumps)
+        for ref in self._bv.get_code_refs_from(addr):
+            target_funcs = self._bv.get_functions_containing(ref)
+            results.append({
+                "to_address": ref,
+                "to_address_hex": f"{ref:#x}",
+                "to_function": target_funcs[0].name if target_funcs else None,
+                "type": "code"
+            })
+
+        # Data references
+        for ref in self._bv.get_data_refs_from(addr):
+            results.append({
+                "to_address": ref,
+                "to_address_hex": f"{ref:#x}",
+                "type": "data"
+            })
+
+        return results
+
+    def function_at(self, addr: int | str) -> dict | None:
+        """Get function info containing address.
 
         Args:
             addr: Address as integer or hex string (e.g., 0x1000 or "0x1000")
 
         Returns:
-            Function name or None if not found
+            Dict with name, start, end, size or None if not found
         """
         if isinstance(addr, str):
             try:
@@ -393,33 +519,60 @@ class BinjaAPI:
                 return None
 
         funcs = self._bv.get_functions_containing(addr)
-        return funcs[0].name if funcs else None
+        if not funcs:
+            return None
+
+        f = funcs[0]
+        return {
+            "name": f.name,
+            "start": f.start,
+            "start_hex": f"{f.start:#x}",
+            "end": f.start + f.total_bytes,
+            "end_hex": f"{f.start + f.total_bytes:#x}",
+            "size": f.total_bytes,
+        }
 
     def get_comment(self, addr: int) -> str | None:
-        """Get comment at address."""
-        return self._bv.get_comment_at(addr)
+        """Get comment at address. Returns None if no comment exists."""
+        comment = self._bv.get_comment_at(addr)
+        return comment if comment else None
 
     def get_function_comment(self, func: str | int) -> str | None:
-        """Get function-level comment."""
+        """Get function-level comment. Returns None if no comment exists."""
         f = self._resolve_function(func)
-        return f.comment if f else None
+        if not f:
+            return None
+        return f.comment if f.comment else None
 
     def get_type(self, name: str) -> str | None:
-        """Get user-defined type definition.
+        """Get user-defined type definition (structs, classes, typedefs).
 
         Args:
-            name: Type name to look up
+            name: Type name to look up (e.g., "my_struct", "PacketHeader")
 
         Returns:
             Type definition string or None if not found
 
         Note:
-            This only returns user-defined types. Built-in C types like
-            'int', 'char', 'void' will return None. Use define_type() to
-            create custom types first.
+            This searches for exact match first, then tries common variations
+            (struct prefix, class prefix, _t suffix). Built-in C types like
+            'int', 'char', 'void' will return None.
+
+            For function signatures, use decompile() or function_at() instead.
+            For function type info, use set_function_signature() to define it.
         """
+        # Try exact match first
         t = self._bv.get_type_by_name(name)
-        return str(t) if t else None
+        if t:
+            return str(t)
+
+        # Try common variations
+        for variant in [f"struct {name}", f"class {name}", f"{name}_t", f"struct {name}_t"]:
+            t = self._bv.get_type_by_name(variant)
+            if t:
+                return str(t)
+
+        return None
 
     def read_bytes(self, addr: int, length: int) -> bytes | None:
         """Read raw bytes from address."""
@@ -472,76 +625,97 @@ class BinjaAPI:
             return None
 
     def get_function_calls(self, func: str | int) -> list[dict]:
-        """Get list of functions called by this function."""
+        """Get list of functions called by this function with call-site addresses.
+
+        Returns:
+            List of dicts with to_function, to_address, call_site (address where call is made)
+        """
         f = self._resolve_function(func)
         if not f:
             return []
 
         results = []
-        seen = set()
 
-        # Use callees property (most reliable)
-        for callee in f.callees:
-            if callee.start not in seen:
-                seen.add(callee.start)
-                results.append({"to_function": callee.name, "to_address": callee.start})
-
-        # Also check for unresolved calls
+        # Use HLIL to get call sites with addresses
         if f.hlil:
+            from binaryninja import HighLevelILOperation
+
             for block in f.hlil:
                 for instr in block:
-                    if hasattr(instr, "dest"):
-                        # Handle direct calls
+                    if hasattr(instr, "operation") and instr.operation == HighLevelILOperation.HLIL_CALL:
+                        call_site = instr.address
+                        target = None
+                        target_name = None
+
+                        # Try to resolve target address
                         if hasattr(instr.dest, "constant"):
-                            target_addr = instr.dest.constant
-                            if target_addr not in seen:
-                                seen.add(target_addr)
-                                target_funcs = self._bv.get_functions_containing(
-                                    target_addr
-                                )
-                                if target_funcs:
-                                    results.append(
-                                        {
-                                            "to_function": target_funcs[0].name,
-                                            "to_address": target_addr,
-                                        }
-                                    )
-                                else:
-                                    # Unresolved call - still report it
-                                    results.append(
-                                        {
-                                            "to_function": f"sub_{target_addr:x}",
-                                            "to_address": target_addr,
-                                        }
-                                    )
+                            target = instr.dest.constant
+                            target_funcs = self._bv.get_functions_containing(target)
+                            target_name = target_funcs[0].name if target_funcs else f"sub_{target:x}"
+                        elif hasattr(instr.dest, "value") and hasattr(instr.dest.value, "value"):
+                            target = instr.dest.value.value
+                            target_funcs = self._bv.get_functions_containing(target)
+                            target_name = target_funcs[0].name if target_funcs else f"sub_{target:x}"
+
+                        if target is not None:
+                            results.append({
+                                "to_function": target_name,
+                                "to_address": target,
+                                "to_address_hex": f"{target:#x}",
+                                "call_site": call_site,
+                                "call_site_hex": f"{call_site:#x}",
+                            })
+
+        # Fallback: if no HLIL results, use callees without call-site info
+        if not results:
+            for callee in f.callees:
+                results.append({
+                    "to_function": callee.name,
+                    "to_address": callee.start,
+                    "to_address_hex": f"{callee.start:#x}",
+                    "call_site": None,
+                    "call_site_hex": None,
+                })
 
         return results
 
     def get_basic_blocks(self, func: str | int) -> list[dict]:
-        """Get basic block info for function."""
+        """Get basic block info for function including CFG edges.
+
+        Returns:
+            List of dicts with start, end, byte_length, instruction_count,
+            successors (list of block start addresses), predecessors (list of block start addresses)
+        """
         f = self._resolve_function(func)
         if not f:
             return []
 
         results = []
         for block in f.basic_blocks:
-            results.append(
-                {
-                    "start": block.start,
-                    "end": block.end,
-                    "length": block.length,
-                    "instruction_count": len(block),
-                }
-            )
+            # Count actual instructions
+            instr_count = sum(1 for _ in block.disassembly_text)
+
+            results.append({
+                "start": block.start,
+                "start_hex": f"{block.start:#x}",
+                "end": block.end,
+                "end_hex": f"{block.end:#x}",
+                "byte_length": block.length,
+                "instruction_count": instr_count,
+                "successors": [edge.target.start for edge in block.outgoing_edges],
+                "predecessors": [edge.source.start for edge in block.incoming_edges],
+            })
         return results
 
     def find_bytes(
-        self, pattern: bytes, start: int | None, end: int | None, limit: int = 100
+        self, pattern: bytes | str, start: int | None = None, end: int | None = None, limit: int = 100
     ) -> list[int]:
         """Search for byte pattern in binary. Returns list of addresses.
 
         Args:
-            pattern: Byte sequence to search for
+            pattern: Byte sequence to search for. Can be:
+                - bytes: b"\\x48\\x89\\xe5"
+                - hex string: "48 89 e5" or "4889e5" (spaces optional)
             start: Start address (default: binary start)
             end: End address (default: binary end)
             limit: Maximum results to return (default: 100)
@@ -549,6 +723,10 @@ class BinjaAPI:
         Returns:
             List of addresses where pattern was found (max 100 results)
         """
+        # Parse hex string if provided
+        if isinstance(pattern, str):
+            pattern = bytes.fromhex(pattern.replace(" ", ""))
+
         if start is None:
             start = self._bv.start
         if end is None:
@@ -585,6 +763,7 @@ class BinjaAPI:
                 results.append(
                     {
                         "address": s.start,
+                        "address_hex": f"{s.start:#x}",
                         "value": str(s),
                         "length": s.length,
                         "type": s.type.name if hasattr(s.type, "name") else str(s.type),

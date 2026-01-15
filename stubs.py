@@ -50,54 +50,66 @@ def generate_api_stubs(
 # Access all functionality via the `binja` object.
 # Use print() for output (automatically captured).
 # Functions accept name (str) or address (int) where marked str|int.
+# Most return values include both decimal and hex addresses (address + address_hex).
 
 # QUICK START:
 binja.list_functions(limit=10)              # List first 10 functions
 binja.decompile("main")                     # Decompile function
 binja.get_xrefs_to(0x401000)                # Find callers
-binja.get_function_calls("process_packet")  # Find callees
-binja.find_bytes(b"\\x48\\x89\\xe5")        # Search for byte pattern
+binja.get_xrefs_from(0x401050)              # Find what this code references
+binja.get_function_calls("process_packet")  # Find callees with call-site addresses
+binja.find_bytes("48 89 e5")              # Search for byte pattern (hex string or bytes)
 binja.write_file("notes.txt", "results")    # Save to workspace
+
+## PROPERTIES (BinaryView-style access)
+binja.functions -> list[dict]    # Alias for list_functions()
+binja.strings -> list[dict]      # Alias for list_strings()
+binja.file -> dict               # {filename, original_filename}
+binja.start -> int               # Binary start address
+binja.end -> int                 # Binary end address
+binja.entry_point -> int         # Entry point address
 
 ## QUERY (READ-ONLY)
 
 # Binary Info
 binja.get_binary_status() -> dict  # {filename, architecture, platform, entry_point, function_count, start, end}
-binja.list_functions(limit=None, min_size=None, max_size=None, name_contains=None, has_calls_to=None, offset=0) -> list[dict]  # [{name, address, size}, ...]
-binja.analyze_functions_batch(batch_size=100, offset=0, include_calls=False, include_xrefs=False, min_size=None, max_size=None, name_contains=None, has_calls_to=None) -> dict  # For large-scale analysis
-binja.list_imports(limit=None, offset=0) -> list[dict]   # [{name, address, namespace}, ...]
-binja.list_exports(limit=None, offset=0) -> list[dict]   # [{name, address}, ...]
-binja.list_segments(limit=None, offset=0) -> list[dict]  # [{start, end, length, readable, writable, executable}, ...]
+binja.list_functions(limit=None, min_size=None, max_size=None, name_contains=None, has_calls_to=None, offset=0) -> list[dict]  # [{name, address, address_hex, size}, ...]
+binja.analyze_functions_batch(batch_size=100, offset=0, include_calls=False, include_xrefs=False, ...) -> dict  # For large-scale analysis
+binja.list_imports(limit=None, offset=0) -> list[dict]   # [{name, address, address_hex, namespace}, ...]
+binja.list_exports(limit=None, offset=0) -> list[dict]   # [{name, address, address_hex}, ...]
+binja.list_segments(limit=None, offset=0) -> list[dict]  # [{start, start_hex, end, end_hex, length, readable, writable, executable}, ...]
 binja.list_classes(limit=None, offset=0) -> list[str]
 binja.list_namespaces(limit=None, offset=0) -> list[str]
-binja.list_data_items() -> list[dict]  # [{name, address}, ...]
+binja.list_data_items() -> list[dict]  # [{name, address, address_hex}, ...]
 
 # Code Analysis
-binja.decompile(func: str|int, il_level="hlil") -> str|None  # il_level: "hlil"|"mlil"|"llil"
-binja.get_assembly(func: str|int) -> str|None
-binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, end, length, instruction_count}, ...]
+binja.decompile(func: str|int, il_level="hlil", start_line=0, max_lines=None) -> str|None  # Paging for large functions
+binja.get_assembly(func: str|int, start_line=0, max_lines=None) -> str|None  # Paging for large functions
+binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, start_hex, end, end_hex, byte_length, instruction_count, successors, predecessors}, ...]
 
 # Cross References
-binja.get_xrefs_to(func: str|int) -> list[dict]         # [{from_function, from_address}, ...] - who calls this?
-binja.get_function_calls(func: str|int) -> list[dict]   # [{to_function, to_address}, ...] - what does this call?
-binja.get_data_xrefs_to(addr: int) -> list[dict]        # [{from_function, from_address}, ...]
-binja.get_data_xrefs_from(addr: int) -> list[dict]      # [{to_address}, ...]
+binja.get_xrefs_to(func: str|int) -> list[dict]         # [{from_function, from_address, from_address_hex}, ...] - who calls this?
+binja.get_xrefs_from(addr: int) -> list[dict]           # [{to_address, to_address_hex, to_function, type}, ...] - what does this reference?
+binja.get_function_calls(func: str|int) -> list[dict]   # [{to_function, to_address, to_address_hex, call_site, call_site_hex}, ...] - with call locations!
+binja.get_data_xrefs_to(addr: int) -> list[dict]        # [{from_function, from_address, from_address_hex}, ...]
+binja.get_data_xrefs_from(addr: int) -> list[dict]      # [{to_address}, ...] - data referenced by code at addr
 
 # Data Reading
 binja.read_bytes(addr: int, length: int) -> bytes|None
 binja.read_string(addr: int, max_length=256) -> str|None  # NUL-terminated UTF-8/latin-1
 binja.get_string_at(addr: int) -> str|None
 binja.get_data_var_at(addr: int) -> dict|None  # {address, type, name}
-binja.list_strings(limit=None, min_length=4, offset=0) -> list[dict]  # [{address, value, length, type}, ...]
+binja.list_strings(limit=None, min_length=4, offset=0) -> list[dict]  # [{address, address_hex, value, length, type}, ...]
 
 # Search & Lookup
-binja.find_bytes(pattern: bytes, start=None, end=None, limit=100) -> list[int]  # Returns up to 100 addresses by default
-binja.function_at(addr: int|str) -> str|None  # Function name containing address
+binja.find_bytes(pattern: bytes|str, start=None, end=None, limit=100) -> list[int]  # Hex string "48 89 e5" or bytes b"\x48\x89\xe5"
+binja.function_at(addr: int|str) -> dict|None  # {name, start, start_hex, end, end_hex, size} or None
 binja.get_comment(addr: int) -> str|None
 binja.get_function_comment(func: str|int) -> str|None
-binja.get_type(name: str) -> str|None  # User-defined type definition
+binja.get_type(name: str) -> str|None  # Structs/typedefs only. For functions use decompile() or function_at()
 
 ## MUTATIONS (return bool, tracked for rollback)
+# Note: Use checkpoint/rollback MCP tools for undo support (session-scoped, not persisted across restarts)
 
 # Renaming
 binja.rename_function(func: str|int, new_name: str) -> bool
