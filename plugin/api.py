@@ -1097,3 +1097,170 @@ class BinjaAPI:
             "callees_count": len(f.callees),
             "instruction_count": sum(len(block) for block in f.basic_blocks),
         }
+
+    # =========================================================================
+    # Output Formatting Helpers
+    # =========================================================================
+
+    def print_table(
+        self,
+        data: list[dict],
+        columns: list[str] | None = None,
+        max_rows: int | None = None,
+        addr_cols: list[str] | None = None,
+    ) -> str:
+        """Format list of dicts as aligned table and print it.
+
+        Args:
+            data: List of dicts to display
+            columns: Column keys to show (default: auto-detect from first row)
+            max_rows: Maximum rows to display (default: all)
+            addr_cols: Column names to format as hex addresses (default: auto-detect 'address', 'addr', 'start', 'end')
+
+        Returns:
+            The formatted table string (also printed)
+
+        Example:
+            binja.print_table(binja.list_functions(limit=10))
+            binja.print_table(data, columns=["name", "address", "size"])
+        """
+        if not data:
+            result = "(no data)"
+            print(result)
+            return result
+
+        # Auto-detect columns from first row
+        if columns is None:
+            columns = list(data[0].keys())
+
+        # Auto-detect address columns
+        if addr_cols is None:
+            addr_cols = ["address", "addr", "start", "end", "from_address", "to_address"]
+
+        # Apply max_rows
+        display_data = data[:max_rows] if max_rows else data
+        truncated = max_rows and len(data) > max_rows
+
+        # Calculate column widths
+        widths = {}
+        for col in columns:
+            # Header width
+            widths[col] = len(col)
+            # Data widths
+            for row in display_data:
+                val = row.get(col, "")
+                if col in addr_cols and isinstance(val, int):
+                    formatted = f"0x{val:08x}"
+                else:
+                    formatted = str(val)
+                widths[col] = max(widths[col], len(formatted))
+
+        # Build format string
+        header = "  ".join(col.upper().ljust(widths[col]) for col in columns)
+        separator = "  ".join("-" * widths[col] for col in columns)
+
+        lines = [header, separator]
+
+        for row in display_data:
+            cells = []
+            for col in columns:
+                val = row.get(col, "")
+                if col in addr_cols and isinstance(val, int):
+                    formatted = f"0x{val:08x}"
+                elif isinstance(val, int):
+                    formatted = str(val)
+                elif isinstance(val, list):
+                    formatted = ", ".join(str(v) for v in val[:3])
+                    if len(val) > 3:
+                        formatted += f" (+{len(val) - 3})"
+                else:
+                    formatted = str(val) if val is not None else ""
+                cells.append(formatted.ljust(widths[col]))
+            lines.append("  ".join(cells))
+
+        if truncated:
+            lines.append(f"... ({len(data) - max_rows} more rows)")
+
+        result = "\n".join(lines)
+        print(result)
+        return result
+
+    def fmt_addr(self, addr: int, width: int = 8) -> str:
+        """Format integer as hex address.
+
+        Args:
+            addr: Address to format
+            width: Minimum hex digits (default: 8)
+
+        Returns:
+            Formatted address string like '0x00401000'
+        """
+        return f"0x{addr:0{width}x}"
+
+    def fmt_size(self, size: int) -> str:
+        """Format byte size with appropriate units.
+
+        Args:
+            size: Size in bytes
+
+        Returns:
+            Formatted string like '1.5 KB' or '256 bytes'
+        """
+        if size < 1024:
+            return f"{size} bytes"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        else:
+            return f"{size / (1024 * 1024):.1f} MB"
+
+    def fmt_hex(self, data: bytes, sep: str = " ") -> str:
+        """Format bytes as hex string.
+
+        Args:
+            data: Bytes to format
+            sep: Separator between bytes (default: space)
+
+        Returns:
+            Hex string like '48 89 e5 41 56'
+        """
+        return sep.join(f"{b:02x}" for b in data)
+
+    def summary(self, data: Any) -> str:
+        """Generate smart summary of data and print it.
+
+        Args:
+            data: Any data - dict, list, or primitive
+
+        Returns:
+            Formatted summary string (also printed)
+        """
+        if data is None:
+            result = "(none)"
+        elif isinstance(data, dict):
+            lines = []
+            for k, v in data.items():
+                if isinstance(v, int) and k in ("address", "addr", "start", "end", "entry_point"):
+                    lines.append(f"  {k}: {self.fmt_addr(v)}")
+                elif isinstance(v, int) and "size" in k.lower():
+                    lines.append(f"  {k}: {self.fmt_size(v)}")
+                elif isinstance(v, list):
+                    lines.append(f"  {k}: [{len(v)} items]")
+                else:
+                    lines.append(f"  {k}: {v}")
+            result = "\n".join(lines)
+        elif isinstance(data, list):
+            if not data:
+                result = "(empty list)"
+            elif isinstance(data[0], dict):
+                result = f"[{len(data)} items]\n"
+                result += self.print_table(data, max_rows=10)
+                return result  # Already printed by print_table
+            else:
+                result = f"[{len(data)} items]: " + ", ".join(str(x) for x in data[:10])
+                if len(data) > 10:
+                    result += f" ... (+{len(data) - 10} more)"
+        else:
+            result = str(data)
+
+        print(result)
+        return result

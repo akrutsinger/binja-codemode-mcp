@@ -53,13 +53,12 @@ def generate_api_stubs(
 # Most return values include both decimal and hex addresses (address + address_hex).
 
 # QUICK START:
-binja.list_functions(limit=10)              # List first 10 functions
-binja.decompile("main")                     # Decompile function
-binja.get_xrefs_to(0x401000)                # Find callers
-binja.get_xrefs_from(0x401050)              # Find what this code references
-binja.get_function_calls("process_packet")  # Find callees with call-site addresses
-binja.find_bytes("48 89 e5")              # Search for byte pattern (hex string or bytes)
-binja.write_file("notes.txt", "results")    # Save to workspace
+binja.print_table(binja.list_functions(limit=10))  # List functions (formatted!)
+binja.decompile("main")                            # Decompile function
+binja.print_table(binja.get_xrefs_to(0x401000))    # Find callers (formatted!)
+binja.summary(binja.get_function_complexity("main"))  # Function stats
+binja.find_bytes("48 89 e5")                       # Search for byte pattern
+binja.write_file("notes.txt", "results")           # Save to workspace
 
 ## PROPERTIES (BinaryView-style access)
 binja.functions -> list[dict]    # Alias for list_functions()
@@ -142,6 +141,25 @@ binja.delete_skill(name: str) -> bool
 ## HELPERS
 binja.find_functions_calling_unsafe(unsafe_patterns=None) -> list[dict]  # Default patterns: strcpy, sprintf, gets, memcpy, malloc, etc.
 binja.get_function_complexity(func: str|int) -> dict|None  # {name, address, size, basic_blocks, cyclomatic_complexity, callers_count, callees_count, instruction_count}
+
+## OUTPUT FORMATTING (use these for clean, readable output!)
+binja.print_table(data, columns=None, max_rows=None, addr_cols=None) -> str  # Pretty-print list of dicts as aligned table
+binja.summary(data) -> str                    # Smart summary - auto-formats dicts, lists, primitives
+binja.fmt_addr(addr, width=8) -> str          # Format as hex: 0x00401000
+binja.fmt_size(size) -> str                   # Format with units: "1.5 KB", "256 bytes"
+binja.fmt_hex(data, sep=" ") -> str           # Format bytes: "48 89 e5 41 56"
+
+# OUTPUT GUIDELINES:
+# - For lists of items: use binja.print_table() for clean aligned output
+# - For single dicts: use binja.summary() for readable key-value display
+# - For raw exploration: print() with f-strings is fine
+# - AVOID: print(json.dumps(...)) or print(result) for dicts - hard to read!
+#
+# Examples:
+#   binja.print_table(binja.list_functions(limit=20))
+#   binja.print_table(binja.list_imports(), columns=["name", "address"])
+#   binja.summary(binja.get_function_complexity("main"))
+#   print(f"Found at {binja.fmt_addr(addr)}: {binja.fmt_hex(data)}")
 
 # Note: Many functions return None on failure - always check before using!
 """
