@@ -217,7 +217,7 @@ class CodeExecutor:
 
         def run_code():
             try:
-                exec(code, restricted_globals, {})
+                exec(code, restricted_globals)
                 result_holder["result"] = stdout_capture.getvalue()
             except Exception as e:
                 result_holder["error"] = (

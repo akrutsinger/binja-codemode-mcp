@@ -1,2 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Package manager
+uv.lock
+
+# IDE/Editor configs
 .zed
 pyrightconfig.json
+.vscode/
+.idea/
+
+# AI assistant folders
+.gemini/
+.claude/
+
+# Temporary/scratch files
+tmp_pics/
+*.tmp
+*.bak
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Binary Ninja databases
+*.bndb
