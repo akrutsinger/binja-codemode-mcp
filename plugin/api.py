@@ -385,6 +385,30 @@ class BinjaAPI:
 
         return result
 
+    def get_mlil(self, func: str | int, start_line: int = 0, max_lines: int | None = None) -> str | None:
+        """Get Medium-Level IL for function (SSA form with explicit assignments).
+
+        Args:
+            func: Function name (str) or address (int)
+        """
+        return self.decompile(func, il_level="mlil", start_line=start_line, max_lines=max_lines)
+
+    def get_hlil(self, func: str | int, start_line: int = 0, max_lines: int | None = None) -> str | None:
+        """Get High-Level IL (C-like pseudocode) for function.
+
+        Args:
+            func: Function name (str) or address (int)
+        """
+        return self.decompile(func, il_level="hlil", start_line=start_line, max_lines=max_lines)
+
+    def get_llil(self, func: str | int, start_line: int = 0, max_lines: int | None = None) -> str | None:
+        """Get Low-Level IL for function (normalized assembly).
+
+        Args:
+            func: Function name (str) or address (int)
+        """
+        return self.decompile(func, il_level="llil", start_line=start_line, max_lines=max_lines)
+
     def get_assembly(
         self,
         func: str | int,
@@ -945,6 +969,32 @@ class BinjaAPI:
     def delete_skill(self, name: str) -> bool:
         """Delete a skill."""
         return self._skills.delete(name)
+
+    # =========================================================================
+    # API Discovery
+    # =========================================================================
+
+    def help(self, method_name: str | None = None) -> str:
+        """Get API documentation.
+
+        Args:
+            method_name: Specific method name, or None for full API docs.
+
+        Examples:
+            binja.help()              # Full API overview
+            binja.help("decompile")   # Specific method help
+        """
+        if method_name is None:
+            from stubs import generate_api_stubs
+            return generate_api_stubs(self._bv, self._state, self._workspace, self._skills)
+
+        # Return method docstring if exists
+        if hasattr(self, method_name):
+            method = getattr(self, method_name)
+            if callable(method) and method.__doc__:
+                return f"{method_name}:\n{method.__doc__}"
+
+        return f"Unknown method: {method_name}. Use binja.help() for all methods."
 
     # =========================================================================
     # Helpers

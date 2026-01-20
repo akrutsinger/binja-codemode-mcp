@@ -81,8 +81,20 @@ binja.list_classes(limit=None, offset=0) -> list[str]
 binja.list_namespaces(limit=None, offset=0) -> list[str]
 binja.list_data_items() -> list[dict]  # [{name, address, address_hex}, ...]
 
+# IL LEVELS (Intermediate Language)
+# Binary Ninja provides 3 decompilation levels:
+#   HLIL - High-Level IL: C-like pseudocode (default)
+#   MLIL - Medium-Level IL: SSA form, explicit data flow
+#   LLIL - Low-Level IL: Normalized assembly
+#
+# Quick access (func = name or address):
+binja.get_hlil(func: str|int)   # -> C-like pseudocode (same as decompile default)
+binja.get_mlil(func: str|int)   # -> SSA form with explicit assignments
+binja.get_llil(func: str|int)   # -> Normalized assembly instructions
+binja.decompile(func, il_level="mlil")  # Alternative syntax
+
 # Code Analysis
-binja.decompile(func: str|int, il_level="hlil", start_line=0, max_lines=None) -> str|None  # Paging for large functions
+binja.decompile(func: str|int, il_level="hlil"|"mlil"|"llil", start_line=0, max_lines=None) -> str|None  # Paging for large functions
 binja.get_assembly(func: str|int, start_line=0, max_lines=None) -> str|None  # Paging for large functions
 binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, start_hex, end, end_hex, byte_length, instruction_count, successors, predecessors}, ...]
 
@@ -141,6 +153,7 @@ binja.delete_skill(name: str) -> bool
 ## HELPERS
 binja.find_functions_calling_unsafe(unsafe_patterns=None) -> list[dict]  # Default patterns: strcpy, sprintf, gets, memcpy, malloc, etc.
 binja.get_function_complexity(func: str|int) -> dict|None  # {name, address, size, basic_blocks, cyclomatic_complexity, callers_count, callees_count, instruction_count}
+binja.help(method_name=None) -> str  # Get API docs: binja.help() for all, binja.help("decompile") for specific method
 
 ## OUTPUT FORMATTING (use these for clean, readable output!)
 binja.print_table(data, columns=None, max_rows=None, addr_cols=None) -> str  # Pretty-print list of dicts as aligned table
