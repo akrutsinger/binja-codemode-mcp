@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from binaryninja import BinaryView
@@ -26,10 +26,15 @@ class StateTracker:
         self.checkpoints: list[Checkpoint] = []
         self.pending_changes: list[str] = []
 
+        # Callback for operation logging (used by TUI)
+        self.on_operation: Optional[Callable[[str], None]] = None
+
     def record_change(self, description: str) -> None:
         """Record a mutation for tracking."""
         if self._enabled:
             self.pending_changes.append(description)
+            if self.on_operation:
+                self.on_operation(description)
 
     def create_checkpoint(self, name: str) -> bool:
         """Create named checkpoint at current state."""

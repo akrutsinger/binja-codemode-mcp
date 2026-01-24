@@ -78,7 +78,13 @@ class BinjaCodeModeMCP:
                 return components["generate_api_stubs"](bv, state, workspace, skills)
 
             self._server = components["MCPServer"](
-                api, state, executor, workspace, skills, self._config, get_stubs
+                self._config,
+                api=api,
+                state=state,
+                executor=executor,
+                workspace=workspace,
+                skills=skills,
+                get_stubs=get_stubs,
             )
             url = self._server.start()
 

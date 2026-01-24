@@ -64,6 +64,10 @@ class Config:
     max_output_bytes: int = 100_000
     execution_timeout_s: float = 30.0  # seconds
 
+    # Session settings (for multi-agent support)
+    session_timeout_s: float = 3600.0  # 1 hour
+    max_sessions: int = 10
+
     # Persistence settings
     data_dir: Path = field(default_factory=_default_data_dir)
 

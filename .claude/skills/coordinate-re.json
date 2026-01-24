@@ -1,0 +1,35 @@
+{
+  "name": "coordinate-re",
+  "description": "Orchestrate multiple agents to reverse engineer binaries at scale",
+  "version": "1.0.0",
+  "type": "orchestration",
+  "workflow": {
+    "phases": ["triage", "analyze", "consolidate"],
+    "parallel": true
+  },
+  "workspace_structure": {
+    "triage/": "Quick scan results per binary",
+    "annotations/": "Proposed renames, types, comments",
+    "types/": "Recovered data structures",
+    "docs/": "Human-readable documentation",
+    "tasks/": "Work queue for agents"
+  },
+  "agent_roles": {
+    "triage": {
+      "description": "Quick scan to understand binary purpose and identify key areas",
+      "output": "triage/{binary}.json"
+    },
+    "analyzer": {
+      "description": "Deep analysis of specific functions or areas",
+      "output": "annotations/{binary}.json"
+    },
+    "type-recovery": {
+      "description": "Recover data structures and types",
+      "output": "types/{binary}_structs.h"
+    },
+    "documenter": {
+      "description": "Generate human-readable documentation",
+      "output": "docs/{binary}.md"
+    }
+  }
+}
