@@ -72,10 +72,27 @@ def _import_plugin_module(name: str):
         return sys.modules[full_name]
 
     plugin_dir = Path(__file__).parent.parent / "plugin"
+
+    # Ensure the 'plugin' package exists in sys.modules for relative imports to work
+    if "plugin" not in sys.modules:
+        import types
+        plugin_pkg = types.ModuleType("plugin")
+        plugin_pkg.__path__ = [str(plugin_dir)]
+        plugin_pkg.__package__ = "plugin"
+        sys.modules["plugin"] = plugin_pkg
+
+    # Handle dependencies: server.py imports from .sessions
+    if name == "server" and "plugin.sessions" not in sys.modules:
+        _import_plugin_module("sessions")
+
     spec = importlib.util.spec_from_file_location(full_name, plugin_dir / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[full_name] = module
     spec.loader.exec_module(module)
+
+    # Also register on the package for attribute access
+    setattr(sys.modules["plugin"], name, module)
+
     return module
 
 
@@ -99,9 +116,14 @@ class BinarySession:
 
 
 class SessionManager:
-    """Manages multiple binary sessions and the MCP server."""
+    """Manages multiple binary sessions and the MCP server.
 
-    def __init__(self, config: Optional[object] = None):
+    Supports two modes:
+    - Legacy mode: Single-client, direct api/state/executor (TUI compatible)
+    - Multi-agent mode: Concurrent sessions with isolated state via SessionRegistry
+    """
+
+    def __init__(self, config: Optional[object] = None, multi_agent: bool = False):
         # Lazy import to avoid loading binaryninja at import time
         from config import Config
 
@@ -111,6 +133,11 @@ class SessionManager:
         self._sessions: dict[str, BinarySession] = {}
         self._active_key: Optional[str] = None
         self._server: Optional[object] = None  # MCPServer
+
+        # Multi-agent mode components
+        self._multi_agent = multi_agent
+        self._binary_pool: Optional[object] = None  # BinaryPool
+        self._session_registry: Optional[object] = None  # SessionRegistry
 
         # Shared persistence managers (initialized lazily)
         self._workspace: Optional[object] = None
@@ -127,6 +154,8 @@ class SessionManager:
         self.on_server_changed: Optional[Callable[[bool], None]] = None
         self.on_bn_log: Optional[Callable[[str, str], None]] = None  # (message, level)
         self.on_operation: Optional[Callable[[str], None]] = None  # (description)
+        self.on_session_created: Optional[Callable[[object], None]] = None  # (AgentSession)
+        self.on_session_closed: Optional[Callable[[object], None]] = None  # (AgentSession)
 
     def _ensure_managers(self):
         """Ensure workspace and skills managers are initialized."""
@@ -134,6 +163,64 @@ class SessionManager:
             workspace_mod = _import_plugin_module("workspace")
             self._workspace = workspace_mod.WorkspaceManager(self.config.workspace_dir)
             self._skills = workspace_mod.SkillsManager(self.config.skills_dir)
+
+    def _ensure_multi_agent(self):
+        """Initialize multi-agent mode components."""
+        if not self._multi_agent:
+            return
+
+        if self._binary_pool is None:
+            sessions_mod = _import_plugin_module("sessions")
+            BinaryPool = sessions_mod.BinaryPool
+            SessionRegistry = sessions_mod.SessionRegistry
+
+            self._ensure_managers()
+
+            self._binary_pool = BinaryPool(suppress_output=self.suppress_bn_output)
+
+            # Wire callbacks
+            if self.on_binary_loaded:
+                def on_loaded(loaded):
+                    # Create a minimal BinarySession for callback
+                    session = BinarySession(
+                        path=loaded.path,
+                        bv=loaded.bv,
+                        api=None,
+                        state=None,
+                        executor=None,
+                    )
+                    self.on_binary_loaded(session)
+                self._binary_pool.on_binary_loaded = on_loaded
+
+            if self.on_binary_closed:
+                def on_closed(loaded):
+                    session = BinarySession(
+                        path=loaded.path,
+                        bv=loaded.bv,
+                        api=None,
+                        state=None,
+                        executor=None,
+                    )
+                    self.on_binary_closed(session)
+                self._binary_pool.on_binary_closed = on_closed
+
+            self._session_registry = SessionRegistry(
+                binary_pool=self._binary_pool,
+                workspace=self._workspace,
+                skills=self._skills,
+                config=self.config,
+                session_timeout_s=self.config.session_timeout_s,
+                max_sessions=self.config.max_sessions,
+            )
+
+            # Wire operation callback
+            self._session_registry.on_operation = self._handle_operation
+
+            # Wire session callbacks
+            if self.on_session_created:
+                self._session_registry.on_session_created = self.on_session_created
+            if self.on_session_closed:
+                self._session_registry.on_session_closed = self.on_session_closed
 
     def load_binary(self, path: str | Path) -> Optional[BinarySession]:
         """Load a binary file for analysis.
@@ -382,7 +469,27 @@ class SessionManager:
             self._server.stop()
             self._server = None
 
-        # Get active session if any
+        # Multi-agent mode: use SessionRegistry
+        if self._multi_agent:
+            self._ensure_multi_agent()
+
+            self._server = MCPServer(
+                self.config,
+                workspace=self._workspace,
+                skills=self._skills,
+                session_registry=self._session_registry,
+            )
+
+            # Wire up request callback
+            self._server.on_request = self._handle_request
+
+            self._server.start()
+
+            if self.on_server_changed:
+                self.on_server_changed(True)
+            return
+
+        # Legacy mode: direct api/state/executor
         session = self._sessions.get(self._active_key) if self._active_key else None
 
         if session:
@@ -411,7 +518,7 @@ class SessionManager:
         # Wire up request callback
         self._server.on_request = self._handle_request
 
-        # Wire up session manager for binary management
+        # Wire up session manager for binary management (legacy mode)
         self._server.session_manager = self
 
         self._server.start()
@@ -461,3 +568,34 @@ class SessionManager:
                 "function_count": status.get("function_count", 0),
             })
         return result
+
+    @property
+    def multi_agent_enabled(self) -> bool:
+        """Check if multi-agent mode is enabled."""
+        return self._multi_agent
+
+    @property
+    def binary_pool(self) -> Optional[object]:
+        """Get the BinaryPool (multi-agent mode only)."""
+        return self._binary_pool
+
+    @property
+    def session_registry(self) -> Optional[object]:
+        """Get the SessionRegistry (multi-agent mode only)."""
+        return self._session_registry
+
+    def get_all_sessions_info(self) -> list[dict]:
+        """Get info about all agent sessions (multi-agent mode only)."""
+        if self._session_registry:
+            return self._session_registry.list_sessions()
+        return []
+
+    def cleanup_expired_sessions(self) -> int:
+        """Remove expired sessions (multi-agent mode only).
+
+        Returns:
+            Number of sessions cleaned up
+        """
+        if self._session_registry:
+            return self._session_registry.cleanup_expired()
+        return 0

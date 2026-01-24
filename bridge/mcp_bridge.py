@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
 MCP Bridge: Connects MCP protocol (stdio) to Binary Ninja HTTP server.
+
+Supports multi-agent session isolation via X-Session-Id header.
+Each bridge instance automatically gets a unique session ID for isolation.
 """
 
 import json
@@ -9,6 +12,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from typing import Optional
 
 # Logging configuration (use stderr to avoid interfering with JSON-RPC on stdout)
@@ -33,13 +37,32 @@ sys.excepthook = excepthook
 SERVER_URL = os.environ.get("BINJA_MCP_URL", "http://127.0.0.1:42069")
 API_KEY = os.environ.get("BINJA_MCP_KEY", "binja-codemode-local")
 
+# Session configuration
+# - BINJA_MCP_SESSION_ID: Explicit session binding (for sharing sessions across processes)
+# - If not set, auto-generates a unique session ID for this bridge instance
+# - This ensures each MCP client (e.g., each Claude agent) gets isolated state
+_explicit_session_id = os.environ.get("BINJA_MCP_SESSION_ID")
+SESSION_ID: str = _explicit_session_id if _explicit_session_id else str(uuid.uuid4())
+CLIENT_NAME: str = os.environ.get("BINJA_MCP_CLIENT_NAME", "mcp-bridge")
+
+# Workspace directory - where analysis files should be written
+# Defaults to current working directory so files go where Claude is working
+WORKSPACE_DIR: str = os.environ.get("BINJA_MCP_WORKSPACE_DIR", os.getcwd())
+
 
 def make_request(method: str, path: str, data: Optional[dict] = None) -> dict:
-    """Make HTTP request to Binary Ninja server."""
+    """Make HTTP request to Binary Ninja server.
+
+    Includes session headers for multi-agent support.
+    Each bridge instance uses its unique SESSION_ID for isolation.
+    """
     url = f"{SERVER_URL}{path}"
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
+        "X-Client-Name": CLIENT_NAME,
+        "X-Session-Id": SESSION_ID,
+        "X-Workspace-Dir": WORKSPACE_DIR,
     }
 
     body = json.dumps(data).encode("utf-8") if data else None
@@ -79,12 +102,22 @@ def write_message(msg: dict):
 
 def handle_initialize(params: dict) -> dict:
     """Handle MCP initialize request."""
+    logger.info("Initializing with session ID: %s", SESSION_ID)
+
     # Fetch binary status to include in initialization
+    # This also establishes the session if multi-agent mode is enabled
     try:
         status = make_request("GET", "/status")
         binary_info = status.get("binary", {})
     except Exception:
         binary_info = {}
+
+    meta = {
+        "description": "Binary Ninja Code Mode MCP Server for LLM-assisted reverse engineering",
+        "binary": binary_info,
+        "note": "Read the 'binja://api-reference' resource immediately to get full API documentation",
+        "session_id": SESSION_ID,
+    }
 
     return {
         "protocolVersion": "2024-11-05",
@@ -96,11 +129,7 @@ def handle_initialize(params: dict) -> dict:
             "name": "binja-codemode-mcp",
             "version": "0.2.0",
         },
-        "_meta": {
-            "description": "Binary Ninja Code Mode MCP Server for LLM-assisted reverse engineering",
-            "binary": binary_info,
-            "note": "Read the 'binja://api-reference' resource immediately to get full API documentation",
-        },
+        "_meta": meta,
     }
 
 
@@ -389,7 +418,7 @@ def main():
     """Main MCP bridge loop."""
     try:
         load_config()
-        logger.info("MCP bridge started (server: %s)", SERVER_URL)
+        logger.info("MCP bridge started (server: %s, session: %s)", SERVER_URL, SESSION_ID)
 
         # Health check: verify Binary Ninja server is reachable
         try:

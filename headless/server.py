@@ -81,6 +81,11 @@ Examples:
         action="store_true",
         help="Suppress all Binary Ninja logging",
     )
+    parser.add_argument(
+        "--multi-agent",
+        action="store_true",
+        help="Enable multi-agent mode with session isolation (each MCP client gets isolated state)",
+    )
 
     args = parser.parse_args()
 
@@ -138,7 +143,10 @@ Examples:
         config_kwargs["api_key"] = args.api_key
 
     config = Config(**config_kwargs)
-    session_manager = SessionManager(config)
+    session_manager = SessionManager(config, multi_agent=args.multi_agent)
+
+    if args.multi_agent:
+        print("Multi-agent mode enabled: each MCP client gets isolated state", file=sys.stderr)
 
     # Load initial binaries
     for binary_path in args.binaries:

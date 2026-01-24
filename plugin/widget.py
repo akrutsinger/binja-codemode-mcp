@@ -11,10 +11,20 @@ try:
     from binaryninjaui import UIContext, UIContextNotification
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+    from shiboken6 import isValid
 
     _HAS_UI = True
 except ImportError:
     _HAS_UI = False
+
+
+def _is_widget_valid(widget):
+    """Check if a Qt widget is still valid (not deleted by C++ side)."""
+    try:
+        return widget is not None and isValid(widget)
+    except Exception:
+        return False
+
 
 # Module-level state
 _status_button = None
@@ -99,7 +109,7 @@ def _update_status_indicator():
     """Update the status button text based on server state."""
     global _status_button, _plugin_instance
 
-    if _status_button is None or _plugin_instance is None:
+    if not _is_widget_valid(_status_button) or _plugin_instance is None:
         return
 
     running = _plugin_instance.is_running
@@ -136,7 +146,7 @@ def _on_file_closed(context, frame):
 
 def _ensure_indicator_in_status_bar():
     """Ensure the status indicator is present in the status bar."""
-    global _status_container
+    global _status_container, _status_button
 
     ctx = UIContext.activeContext()
     if ctx is None:
@@ -147,17 +157,24 @@ def _ensure_indicator_in_status_bar():
     if main_window is None:
         return
 
-    # Create button if needed
-    container = _create_status_button()
-
     # Get status bar from main window
     status_bar = main_window.statusBar()
     if status_bar is None:
         return
 
-    # Check if container is already in the status bar
-    if container.parent() == status_bar:
-        return
+    # Check if existing container has been deleted by C++ side
+    if _status_container is not None and not _is_widget_valid(_status_container):
+        log_debug("MCP Status: Container widget was deleted, clearing references")
+        _status_container = None
+        _status_button = None
+
+    # Create button if needed
+    container = _create_status_button()
+
+    # Check if container is already in the status bar (with validity check)
+    if _is_widget_valid(container) and _is_widget_valid(status_bar):
+        if container.parent() == status_bar:
+            return
 
     # Insert at position 1 (after the first default widget)
     status_bar.insertWidget(1, container, 0)
@@ -227,7 +244,7 @@ def update_status(running: bool):
     """
     global _status_button, _HAS_UI
 
-    if not _HAS_UI or _status_button is None:
+    if not _HAS_UI or not _is_widget_valid(_status_button):
         return
 
     execute_on_main_thread(lambda: _status_button.setText(_get_status_text(running)))

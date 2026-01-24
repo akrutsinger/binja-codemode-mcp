@@ -945,3 +945,206 @@ class BinjaAPI:
             "callees_count": len(f.callees),
             "instruction_count": sum(len(block) for block in f.basic_blocks),
         }
+
+    # =========================================================================
+    # RE Coordination Helpers
+    # =========================================================================
+
+    def init_coordination_workspace(self) -> dict[str, bool]:
+        """Initialize workspace directory structure for coordinated RE.
+
+        Creates:
+            - triage/     : Quick scan results per binary
+            - annotations/: Proposed renames, types, comments
+            - types/      : Recovered data structures
+            - docs/       : Human-readable documentation
+            - tasks/      : Work queue for agents
+
+        Returns:
+            dict mapping directory names to creation success
+        """
+        dirs = ["triage", "annotations", "types", "docs", "tasks"]
+        results = {}
+
+        for d in dirs:
+            # Create a .gitkeep file to establish the directory
+            success = self._workspace.write(f"{d}/.gitkeep", "")
+            results[d] = success
+
+        # Initialize empty task queue
+        import json
+        task_queue = {
+            "pending": [],
+            "in_progress": [],
+            "completed": []
+        }
+        self._workspace.write("tasks/queue.json", json.dumps(task_queue, indent=2))
+
+        return results
+
+    def apply_annotations(self, annotations_file: str, dry_run: bool = False) -> dict:
+        """Apply annotations from a workspace file.
+
+        Args:
+            annotations_file: Path to annotations JSON file in workspace
+            dry_run: If True, only validate without applying
+
+        Returns:
+            dict with 'applied', 'skipped', 'errors' lists
+        """
+        import json
+
+        content = self._workspace.read(annotations_file)
+        if not content:
+            raise BinjaAPIError(f"Annotations file not found: {annotations_file}")
+
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            raise BinjaAPIError(f"Invalid JSON in annotations file: {e}")
+
+        annotations = data.get("annotations", [])
+        results = {"applied": [], "skipped": [], "errors": []}
+
+        for ann in annotations:
+            ann_type = ann.get("type")
+            confidence = ann.get("confidence", "low")
+
+            # Skip low confidence unless explicitly requested
+            if confidence == "low":
+                results["skipped"].append({
+                    "annotation": ann,
+                    "reason": "low confidence"
+                })
+                continue
+
+            if dry_run:
+                results["applied"].append({"annotation": ann, "dry_run": True})
+                continue
+
+            try:
+                if ann_type == "rename_function":
+                    addr = int(ann["address"], 16) if isinstance(ann["address"], str) else ann["address"]
+                    new_name = ann["proposed_name"]
+                    self.rename_function(addr, new_name)
+                    results["applied"].append(ann)
+
+                elif ann_type == "comment":
+                    addr = int(ann["address"], 16) if isinstance(ann["address"], str) else ann["address"]
+                    comment = ann["comment"]
+                    self.set_comment(addr, comment)
+                    results["applied"].append(ann)
+
+                elif ann_type == "set_type":
+                    # Type setting is more complex, skip for now
+                    results["skipped"].append({
+                        "annotation": ann,
+                        "reason": "type setting not yet implemented"
+                    })
+
+                else:
+                    results["skipped"].append({
+                        "annotation": ann,
+                        "reason": f"unknown annotation type: {ann_type}"
+                    })
+
+            except Exception as e:
+                results["errors"].append({
+                    "annotation": ann,
+                    "error": str(e)
+                })
+
+        return results
+
+    def get_triage_summary(self) -> dict:
+        """Generate a quick triage summary of the current binary.
+
+        Returns:
+            dict with binary info, imports, exports, interesting functions
+        """
+        # Categorize imports
+        imports_by_category = {
+            "network": [],
+            "file": [],
+            "memory": [],
+            "process": [],
+            "crypto": [],
+            "other": []
+        }
+
+        network_funcs = {"socket", "connect", "bind", "listen", "accept", "send", "recv",
+                         "sendto", "recvfrom", "read", "write", "select", "poll", "epoll"}
+        file_funcs = {"open", "close", "read", "write", "fopen", "fclose", "fread", "fwrite",
+                      "stat", "fstat", "lstat", "access", "unlink", "mkdir", "rmdir"}
+        memory_funcs = {"malloc", "free", "realloc", "calloc", "mmap", "munmap", "memcpy",
+                        "memmove", "memset", "strcpy", "strncpy", "strcat", "sprintf"}
+        process_funcs = {"fork", "exec", "system", "popen", "kill", "signal", "wait",
+                         "pthread", "clone"}
+        crypto_funcs = {"aes", "des", "rsa", "sha", "md5", "encrypt", "decrypt", "hash",
+                        "hmac", "ssl", "tls", "crypto"}
+
+        for sym in self._bv.get_symbols_of_type(0):  # ImportedFunctionSymbol
+            name_lower = sym.name.lower()
+            categorized = False
+
+            for pattern in network_funcs:
+                if pattern in name_lower:
+                    imports_by_category["network"].append(sym.name)
+                    categorized = True
+                    break
+
+            if not categorized:
+                for pattern in file_funcs:
+                    if pattern in name_lower:
+                        imports_by_category["file"].append(sym.name)
+                        categorized = True
+                        break
+
+            if not categorized:
+                for pattern in memory_funcs:
+                    if pattern in name_lower:
+                        imports_by_category["memory"].append(sym.name)
+                        categorized = True
+                        break
+
+            if not categorized:
+                for pattern in process_funcs:
+                    if pattern in name_lower:
+                        imports_by_category["process"].append(sym.name)
+                        categorized = True
+                        break
+
+            if not categorized:
+                for pattern in crypto_funcs:
+                    if pattern in name_lower:
+                        imports_by_category["crypto"].append(sym.name)
+                        categorized = True
+                        break
+
+            if not categorized:
+                imports_by_category["other"].append(sym.name)
+
+        # Find high-complexity functions
+        complex_funcs = []
+        for func in self._bv.functions:
+            complexity = self.get_function_complexity(func.start)
+            if complexity and complexity["cyclomatic_complexity"] > 10:
+                complex_funcs.append({
+                    "name": func.name,
+                    "address": hex(func.start),
+                    "complexity": complexity["cyclomatic_complexity"],
+                    "basic_blocks": complexity["basic_blocks"]
+                })
+
+        complex_funcs.sort(key=lambda x: x["complexity"], reverse=True)
+
+        return {
+            "binary": self._bv.file.filename,
+            "architecture": self._bv.arch.name if self._bv.arch else None,
+            "platform": self._bv.platform.name if self._bv.platform else None,
+            "entry_point": hex(self._bv.entry_point),
+            "function_count": len(self._bv.functions),
+            "imports_by_category": {k: v for k, v in imports_by_category.items() if v},
+            "high_complexity_functions": complex_funcs[:20],
+            "strings_count": len(list(self._bv.strings))
+        }

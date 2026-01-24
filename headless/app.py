@@ -95,6 +95,103 @@ class BinaryPanel(Static):
         return None
 
 
+class AgentSessionsPanel(Static):
+    """Panel showing active agent sessions (multi-agent mode only)."""
+
+    def __init__(self, session_manager: SessionManager) -> None:
+        super().__init__()
+        self.session_manager = session_manager
+
+    def compose(self) -> ComposeResult:
+        yield Static("Agent Sessions", classes="panel-title")
+        yield DataTable(id="sessions-table", cursor_type="row")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#sessions-table", DataTable)
+        table.add_columns("Session ID", "Client", "Binary", "Idle")
+        self.refresh_table()
+
+    def refresh_table(self) -> None:
+        table = self.query_one("#sessions-table", DataTable)
+        table.clear()
+
+        sessions_info = self.session_manager.get_all_sessions_info()
+        for info in sessions_info:
+            session_id = info.get("session_id", "?")
+            # Truncate session ID for display (show first 8 chars)
+            display_id = session_id[:8] + "..." if len(session_id) > 11 else session_id
+
+            client_name = info.get("client_name", "")[:12] or "-"
+
+            active_binary = info.get("active_binary")
+            if active_binary:
+                binary_name = Path(active_binary).name[:20]
+            else:
+                binary_name = "-"
+
+            idle_s = info.get("idle_s", 0)
+            if idle_s < 60:
+                idle_str = f"{int(idle_s)}s"
+            elif idle_s < 3600:
+                idle_str = f"{int(idle_s // 60)}m"
+            else:
+                idle_str = f"{int(idle_s // 3600)}h"
+
+            table.add_row(
+                display_id,
+                client_name,
+                binary_name,
+                idle_str,
+                key=session_id,
+            )
+
+
+class SharedBinariesPanel(Static):
+    """Panel showing shared binaries in the pool (multi-agent mode only)."""
+
+    def __init__(self, session_manager: SessionManager) -> None:
+        super().__init__()
+        self.session_manager = session_manager
+
+    def compose(self) -> ComposeResult:
+        yield Static("Binary Pool", classes="panel-title")
+        yield DataTable(id="pool-table", cursor_type="row")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#pool-table", DataTable)
+        table.add_columns("Name", "Refs", "Loaded")
+        self.refresh_table()
+
+    def refresh_table(self) -> None:
+        table = self.query_one("#pool-table", DataTable)
+        table.clear()
+
+        if not self.session_manager.binary_pool:
+            return
+
+        binaries = self.session_manager.binary_pool.list()
+        for info in binaries:
+            name = info.get("name", "?")[:25]
+            ref_count = info.get("ref_count", 0)
+
+            import time
+            loaded_at = info.get("loaded_at", time.time())
+            age_s = time.time() - loaded_at
+            if age_s < 60:
+                age_str = f"{int(age_s)}s ago"
+            elif age_s < 3600:
+                age_str = f"{int(age_s // 60)}m ago"
+            else:
+                age_str = f"{int(age_s // 3600)}h ago"
+
+            table.add_row(
+                name,
+                str(ref_count),
+                age_str,
+                key=info.get("path", ""),
+            )
+
+
 class LogTabs(Vertical):
     """Tabbed panel showing MCP requests and Binary Ninja logs."""
 
@@ -149,13 +246,21 @@ class ServerStatus(Static):
     url = reactive("")
     binary_count = reactive(0)
     active_name = reactive("")
+    multi_agent = reactive(False)
+    session_count = reactive(0)
+    pool_count = reactive(0)
 
     def render(self) -> str:
         if self.running:
             status = f"[green bold]SERVER RUNNING[/green bold] | {self.url}"
-            if self.active_name:
-                status += f" | Active: [cyan]{self.active_name}[/cyan]"
-            status += f" | Binaries: {self.binary_count}"
+            if self.multi_agent:
+                status += f" | [magenta]Multi-Agent[/magenta]"
+                status += f" | Sessions: {self.session_count}"
+                status += f" | Pool: {self.pool_count}"
+            else:
+                if self.active_name:
+                    status += f" | Active: [cyan]{self.active_name}[/cyan]"
+                status += f" | Binaries: {self.binary_count}"
             return status
         return "[red bold]SERVER STOPPED[/red bold] | Press [bold]s[/bold] to start"
 
@@ -448,6 +553,23 @@ class HeadlessApp(App):
         background: $surface;
     }
 
+    /* Multi-agent mode panels */
+    #left-panels {
+        width: 40%;
+        height: 100%;
+        border-right: solid $primary-darken-2;
+        background: $surface;
+    }
+
+    AgentSessionsPanel {
+        height: 50%;
+        border-bottom: solid $primary-darken-2;
+    }
+
+    SharedBinariesPanel {
+        height: 50%;
+    }
+
     #logs-panel {
         width: 60%;
         height: 100%;
@@ -469,7 +591,7 @@ class HeadlessApp(App):
         background: $surface;
         border: none;
     }
-    
+
     DataTable > .datatable--header {
         background: $primary-darken-3;
         color: $text;
@@ -490,7 +612,7 @@ class HeadlessApp(App):
         height: 1fr;
         padding: 0;
     }
-    
+
     Tabs {
         background: $surface;
     }
@@ -518,6 +640,7 @@ class HeadlessApp(App):
         Binding("s", "toggle_server", "Server"),
         Binding("tab", "cycle_active", "Cycle"),
         Binding("m", "show_binary_menu", "Menu"),
+        Binding("x", "cleanup_sessions", "Cleanup"),
     ]
 
     QUIT_CONFIRM_TIMEOUT = 2.0
@@ -542,6 +665,8 @@ class HeadlessApp(App):
         self.session_manager.on_server_changed = self._on_server_changed
         self.session_manager.on_bn_log = self._on_bn_log
         self.session_manager.on_operation = self._on_operation
+        self.session_manager.on_session_created = self._on_session_created
+        self.session_manager.on_session_closed = self._on_session_closed
 
         # Don't suppress BN output in TUI mode
         self.session_manager.suppress_bn_output = False
@@ -551,6 +676,10 @@ class HeadlessApp(App):
         if self._bn_log_path:
             self._start_log_tail()
         self._auto_start_server()
+
+        # In multi-agent mode, set up periodic refresh for sessions
+        if self.session_manager.multi_agent_enabled:
+            self.set_interval(2.0, self._refresh_multi_agent_panels)
 
     def _auto_start_server(self) -> None:
         try:
@@ -586,8 +715,15 @@ class HeadlessApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="main-container"):
-            with Vertical(id="binary-panel"):
-                yield BinaryPanel(self.session_manager)
+            if self.session_manager.multi_agent_enabled:
+                # Multi-agent mode: show sessions and binary pool
+                with Vertical(id="left-panels"):
+                    yield AgentSessionsPanel(self.session_manager)
+                    yield SharedBinariesPanel(self.session_manager)
+            else:
+                # Single-client mode: show binary panel
+                with Vertical(id="binary-panel"):
+                    yield BinaryPanel(self.session_manager)
             with Vertical(id="logs-panel"):
                 yield LogTabs()
                 yield OperationsPanel()
@@ -601,17 +737,26 @@ class HeadlessApp(App):
             self.call_from_thread(callback, *args, **kwargs)
 
     def _on_binary_loaded(self, session) -> None:
-        self._safe_call(self._refresh_binary_panel)
+        if self.session_manager.multi_agent_enabled:
+            self._safe_call(self._refresh_multi_agent_panels)
+        else:
+            self._safe_call(self._refresh_binary_panel)
         self._safe_call(self._update_status)
         self._safe_call(self._log_info, f"Loaded: {session.name}")
 
     def _on_binary_closed(self, session) -> None:
-        self._safe_call(self._refresh_binary_panel)
+        if self.session_manager.multi_agent_enabled:
+            self._safe_call(self._refresh_multi_agent_panels)
+        else:
+            self._safe_call(self._refresh_binary_panel)
         self._safe_call(self._update_status)
         self._safe_call(self._log_info, f"Closed: {session.name}")
 
     def _on_active_changed(self, session) -> None:
-        self._safe_call(self._refresh_binary_panel)
+        if self.session_manager.multi_agent_enabled:
+            self._safe_call(self._refresh_multi_agent_panels)
+        else:
+            self._safe_call(self._refresh_binary_panel)
         self._safe_call(self._update_status)
         self._safe_call(self._log_info, f"Switched to: {session.name}")
 
@@ -627,6 +772,18 @@ class HeadlessApp(App):
     def _on_operation(self, description: str) -> None:
         self.call_from_thread(self._add_operation_entry, description)
 
+    def _on_session_created(self, session) -> None:
+        self._safe_call(self._refresh_multi_agent_panels)
+        self._safe_call(self._update_status)
+        client = getattr(session, 'client_name', '') or 'unknown'
+        self._safe_call(self._log_info, f"Session created: {client}")
+
+    def _on_session_closed(self, session) -> None:
+        self._safe_call(self._refresh_multi_agent_panels)
+        self._safe_call(self._update_status)
+        client = getattr(session, 'client_name', '') or 'unknown'
+        self._safe_call(self._log_info, f"Session closed: {client}")
+
     def _refresh_binary_panel(self) -> None:
         # NoMatches: widget may not be mounted yet
         try:
@@ -634,23 +791,47 @@ class HeadlessApp(App):
         except NoMatches:
             pass
 
+    def _refresh_multi_agent_panels(self) -> None:
+        """Refresh session and binary pool panels (multi-agent mode)."""
+        try:
+            self.query_one(AgentSessionsPanel).refresh_table()
+        except NoMatches:
+            pass
+        try:
+            self.query_one(SharedBinariesPanel).refresh_table()
+        except NoMatches:
+            pass
+        self._update_status()
+
     def _update_status(self) -> None:
         # NoMatches: widget may not be mounted yet
         try:
             status = self.query_one(ServerStatus)
             status.running = self.session_manager.server_running
-            status.binary_count = len(self.session_manager.sessions)
+            status.multi_agent = self.session_manager.multi_agent_enabled
+
             if status.running:
                 url = f"http://{self.session_manager.config.host}:{self.session_manager.config.port}"
                 status.url = url
                 self.sub_title = f"Server: Running @ {url}"
+
+                if self.session_manager.multi_agent_enabled:
+                    # Multi-agent mode stats
+                    sessions_info = self.session_manager.get_all_sessions_info()
+                    status.session_count = len(sessions_info)
+                    if self.session_manager.binary_pool:
+                        status.pool_count = len(self.session_manager.binary_pool.list())
+                    else:
+                        status.pool_count = 0
+                else:
+                    # Single-client mode stats
+                    status.binary_count = len(self.session_manager.sessions)
+                    if self.session_manager.active:
+                        status.active_name = self.session_manager.active.name
+                    else:
+                        status.active_name = ""
             else:
                 self.sub_title = "Server: Stopped"
-
-            if self.session_manager.active:
-                status.active_name = self.session_manager.active.name
-            else:
-                status.active_name = ""
         except NoMatches:
             pass
 
@@ -683,6 +864,13 @@ class HeadlessApp(App):
             pass
 
     def action_load_binary(self) -> None:
+        if self.session_manager.multi_agent_enabled:
+            self.notify(
+                "In multi-agent mode, binaries are loaded via MCP requests",
+                severity="information",
+            )
+            return
+
         def handle_result(path: str | None) -> None:
             if path:
                 self._load_binary_async(path)
@@ -711,6 +899,12 @@ class HeadlessApp(App):
                 self._log_info(f"ERROR: Failed to load {name}: {event.worker.error}")
 
     def action_close_binary(self) -> None:
+        if self.session_manager.multi_agent_enabled:
+            self.notify(
+                "In multi-agent mode, binaries are managed via MCP requests",
+                severity="information",
+            )
+            return
         if self.session_manager.active:
             self.session_manager.close_binary(self.session_manager.active.path)
 
@@ -743,6 +937,10 @@ class HeadlessApp(App):
             )
 
     def action_cycle_active(self) -> None:
+        # Only works in single-client mode
+        if self.session_manager.multi_agent_enabled:
+            self.notify("Cycle not available in multi-agent mode", severity="warning")
+            return
         sessions = self.session_manager.sessions
         if len(sessions) <= 1:
             return
@@ -750,6 +948,18 @@ class HeadlessApp(App):
         idx = sessions.index(current) if current in sessions else -1
         next_idx = (idx + 1) % len(sessions)
         self.session_manager.set_active(sessions[next_idx].path)
+
+    def action_cleanup_sessions(self) -> None:
+        """Clean up expired sessions (multi-agent mode only)."""
+        if not self.session_manager.multi_agent_enabled:
+            self.notify("Cleanup only available in multi-agent mode", severity="warning")
+            return
+        count = self.session_manager.cleanup_expired_sessions()
+        if count > 0:
+            self._log_info(f"Cleaned up {count} expired session(s)")
+            self._refresh_multi_agent_panels()
+        else:
+            self.notify("No expired sessions to clean up", severity="information")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.control.id == "binary-table":
@@ -764,6 +974,12 @@ class HeadlessApp(App):
 
     def action_show_binary_menu(self) -> None:
         """Show context menu for selected binary (keyboard shortcut 'm')."""
+        if self.session_manager.multi_agent_enabled:
+            self.notify(
+                "Binary menu not available in multi-agent mode",
+                severity="information",
+            )
+            return
         try:
             panel = self.query_one(BinaryPanel)
             binary_path = panel.get_selected_binary_path()
