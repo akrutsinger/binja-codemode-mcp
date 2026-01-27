@@ -70,6 +70,133 @@ class BinjaAPI:
         """Entry point address."""
         return self._bv.entry_point
 
+    @property
+    def bv(self) -> "BinaryView":
+        """Direct BinaryView access for advanced operations.
+
+        Use this for operations not covered by wrapper methods.
+        For mutations, prefer wrapper methods (rename_function, set_comment, etc.)
+        which track changes for rollback support.
+
+        Example:
+            # Access BV properties directly
+            binja.bv.arch.name
+            binja.bv.sections
+
+            # Iterate raw function objects
+            for f in binja.bv.functions[:5]:
+                print(f.name, f.start)
+
+            # Use with serialize() for readable output
+            binja.serialize(binja.bv.functions[0])
+        """
+        return self._bv
+
+    def serialize(self, obj: Any) -> dict | list | str:
+        """Convert Binary Ninja objects to JSON-friendly format.
+
+        Handles Function, Symbol, Segment, BasicBlock, Variable, and other
+        common BN types. Use when working with raw binja.bv results.
+
+        Args:
+            obj: Any Binary Ninja object or collection
+
+        Returns:
+            Dict, list, or string representation suitable for display
+
+        Example:
+            binja.serialize(binja.bv.functions[0])
+            # -> {'name': 'main', 'address': 4198400, 'address_hex': '0x401000', 'size': 256}
+
+            binja.serialize(binja.bv.segments)
+            # -> [{'name': '.text', 'start': ..., 'end': ...}, ...]
+        """
+        # Handle None
+        if obj is None:
+            return None
+
+        # Handle lists/tuples recursively
+        if isinstance(obj, (list, tuple)):
+            return [self.serialize(x) for x in obj]
+
+        # Handle dicts recursively
+        if isinstance(obj, dict):
+            return {k: self.serialize(v) for k, v in obj.items()}
+
+        # Handle primitives
+        if isinstance(obj, (str, int, float, bool, bytes)):
+            if isinstance(obj, bytes):
+                return self.fmt_hex(obj)
+            return obj
+
+        # Function object
+        if hasattr(obj, "start") and hasattr(obj, "name") and hasattr(obj, "total_bytes"):
+            return {
+                "name": obj.name,
+                "address": obj.start,
+                "address_hex": f"{obj.start:#x}",
+                "size": getattr(obj, "total_bytes", None),
+            }
+
+        # Segment object
+        if hasattr(obj, "start") and hasattr(obj, "end") and hasattr(obj, "readable"):
+            return {
+                "start": obj.start,
+                "start_hex": f"{obj.start:#x}",
+                "end": obj.end,
+                "end_hex": f"{obj.end:#x}",
+                "length": getattr(obj, "length", obj.end - obj.start),
+                "readable": obj.readable,
+                "writable": obj.writable,
+                "executable": obj.executable,
+            }
+
+        # Symbol object
+        if hasattr(obj, "address") and hasattr(obj, "name") and hasattr(obj, "type"):
+            return {
+                "name": obj.name,
+                "address": obj.address,
+                "address_hex": f"{obj.address:#x}",
+                "type": str(obj.type),
+            }
+
+        # BasicBlock object
+        if hasattr(obj, "start") and hasattr(obj, "end") and hasattr(obj, "outgoing_edges"):
+            return {
+                "start": obj.start,
+                "start_hex": f"{obj.start:#x}",
+                "end": obj.end,
+                "end_hex": f"{obj.end:#x}",
+                "length": getattr(obj, "length", obj.end - obj.start),
+            }
+
+        # Variable object
+        if hasattr(obj, "name") and hasattr(obj, "type") and not hasattr(obj, "start"):
+            return {
+                "name": obj.name,
+                "type": str(obj.type) if obj.type else None,
+            }
+
+        # Generic object with address attribute
+        if hasattr(obj, "address"):
+            result = {"address": obj.address, "address_hex": f"{obj.address:#x}"}
+            if hasattr(obj, "name"):
+                result["name"] = obj.name
+            return result
+
+        # Generic object with start attribute
+        if hasattr(obj, "start"):
+            result = {"start": obj.start, "start_hex": f"{obj.start:#x}"}
+            if hasattr(obj, "name"):
+                result["name"] = obj.name
+            if hasattr(obj, "end"):
+                result["end"] = obj.end
+                result["end_hex"] = f"{obj.end:#x}"
+            return result
+
+        # Fallback to string representation
+        return str(obj)
+
     # =========================================================================
     # Query Operations (read-only)
     # =========================================================================

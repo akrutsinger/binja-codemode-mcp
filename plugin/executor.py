@@ -154,6 +154,7 @@ class CodeExecutor:
         # Restricted globals
         restricted_globals = {
             "binja": self.api,
+            "bv": self.api.bv,  # Direct BinaryView access (common in BN scripts)
             "print": progress_print,
             # Safe built-ins
             "len": len,

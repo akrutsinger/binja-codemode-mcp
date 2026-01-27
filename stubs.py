@@ -68,6 +68,23 @@ binja.start -> int               # Binary start address
 binja.end -> int                 # Binary end address
 binja.entry_point -> int         # Entry point address
 
+## DIRECT BINARYVIEW ACCESS
+bv -> BinaryView                 # Direct BinaryView (same as binja.bv)
+binja.bv -> BinaryView           # Also available via binja
+binja.serialize(obj) -> dict     # Convert BV objects to JSON-friendly dicts
+
+# Use bv directly for operations not covered by wrappers:
+#   bv.sections                  # Access sections directly
+#   bv.get_symbol_at(addr)       # Raw symbol lookup
+#   for f in bv.functions:       # Iterate raw Function objects
+#
+# Use serialize() to convert raw BV results:
+#   binja.serialize(bv.functions[0])  # -> {name, address, address_hex, size}
+#   binja.serialize(bv.segments)      # -> [{start, end, readable, ...}, ...]
+#
+# WARNING: Mutations via bv bypass rollback tracking.
+# Prefer wrapper methods: binja.rename_function(), binja.set_comment(), etc.
+
 ## QUERY (READ-ONLY)
 
 # Binary Info
