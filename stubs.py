@@ -50,54 +50,94 @@ def generate_api_stubs(
 # Access all functionality via the `binja` object.
 # Use print() for output (automatically captured).
 # Functions accept name (str) or address (int) where marked str|int.
+# Most return values include both decimal and hex addresses (address + address_hex).
 
 # QUICK START:
-binja.list_functions(limit=10)              # List first 10 functions
-binja.decompile("main")                     # Decompile function
-binja.get_xrefs_to(0x401000)                # Find callers
-binja.get_function_calls("process_packet")  # Find callees
-binja.find_bytes(b"\\x48\\x89\\xe5")        # Search for byte pattern
-binja.write_file("notes.txt", "results")    # Save to workspace
+binja.print_table(binja.list_functions(limit=10))  # List functions (formatted!)
+binja.decompile("main")                            # Decompile function
+binja.print_table(binja.get_xrefs_to(0x401000))    # Find callers (formatted!)
+binja.summary(binja.get_function_complexity("main"))  # Function stats
+binja.find_bytes("48 89 e5")                       # Search for byte pattern
+binja.write_file("notes.txt", "results")           # Save to workspace
+
+## PROPERTIES (BinaryView-style access)
+binja.functions -> list[dict]    # Alias for list_functions()
+binja.strings -> list[dict]      # Alias for list_strings()
+binja.file -> dict               # {filename, original_filename}
+binja.start -> int               # Binary start address
+binja.end -> int                 # Binary end address
+binja.entry_point -> int         # Entry point address
+
+## DIRECT BINARYVIEW ACCESS
+bv -> BinaryView                 # Direct BinaryView (same as binja.bv)
+binja.bv -> BinaryView           # Also available via binja
+binja.serialize(obj) -> dict     # Convert BV objects to JSON-friendly dicts
+
+# Use bv directly for operations not covered by wrappers:
+#   bv.sections                  # Access sections directly
+#   bv.get_symbol_at(addr)       # Raw symbol lookup
+#   for f in bv.functions:       # Iterate raw Function objects
+#
+# Use serialize() to convert raw BV results:
+#   binja.serialize(bv.functions[0])  # -> {name, address, address_hex, size}
+#   binja.serialize(bv.segments)      # -> [{start, end, readable, ...}, ...]
+#
+# WARNING: Mutations via bv bypass rollback tracking.
+# Prefer wrapper methods: binja.rename_function(), binja.set_comment(), etc.
 
 ## QUERY (READ-ONLY)
 
 # Binary Info
 binja.get_binary_status() -> dict  # {filename, architecture, platform, entry_point, function_count, start, end}
-binja.list_functions(limit=None, min_size=None, max_size=None, name_contains=None, has_calls_to=None, offset=0) -> list[dict]  # [{name, address, size}, ...]
-binja.analyze_functions_batch(batch_size=100, offset=0, include_calls=False, include_xrefs=False, min_size=None, max_size=None, name_contains=None, has_calls_to=None) -> dict  # For large-scale analysis
-binja.list_imports(limit=None, offset=0) -> list[dict]   # [{name, address, namespace}, ...]
-binja.list_exports(limit=None, offset=0) -> list[dict]   # [{name, address}, ...]
-binja.list_segments(limit=None, offset=0) -> list[dict]  # [{start, end, length, readable, writable, executable}, ...]
+binja.list_functions(limit=None, min_size=None, max_size=None, name_contains=None, has_calls_to=None, offset=0) -> list[dict]  # [{name, address, address_hex, size}, ...]
+binja.analyze_functions_batch(batch_size=100, offset=0, include_calls=False, include_xrefs=False, ...) -> dict  # For large-scale analysis
+binja.list_imports(limit=None, offset=0) -> list[dict]   # [{name, address, address_hex, namespace}, ...]
+binja.list_exports(limit=None, offset=0) -> list[dict]   # [{name, address, address_hex}, ...]
+binja.list_segments(limit=None, offset=0) -> list[dict]  # [{start, start_hex, end, end_hex, length, readable, writable, executable}, ...]
 binja.list_classes(limit=None, offset=0) -> list[str]
 binja.list_namespaces(limit=None, offset=0) -> list[str]
-binja.list_data_items() -> list[dict]  # [{name, address}, ...]
+binja.list_data_items() -> list[dict]  # [{name, address, address_hex}, ...]
+
+# IL LEVELS (Intermediate Language)
+# Binary Ninja provides 3 decompilation levels:
+#   HLIL - High-Level IL: C-like pseudocode (default)
+#   MLIL - Medium-Level IL: SSA form, explicit data flow
+#   LLIL - Low-Level IL: Normalized assembly
+#
+# Quick access (func = name or address):
+binja.get_hlil(func: str|int)   # -> C-like pseudocode (same as decompile default)
+binja.get_mlil(func: str|int)   # -> SSA form with explicit assignments
+binja.get_llil(func: str|int)   # -> Normalized assembly instructions
+binja.decompile(func, il_level="mlil")  # Alternative syntax
 
 # Code Analysis
-binja.decompile(func: str|int, il_level="hlil") -> str|None  # il_level: "hlil"|"mlil"|"llil"
-binja.get_assembly(func: str|int) -> str|None
-binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, end, length, instruction_count}, ...]
+binja.decompile(func: str|int, il_level="hlil"|"mlil"|"llil", start_line=0, max_lines=None) -> str|None  # Paging for large functions
+binja.get_assembly(func: str|int, start_line=0, max_lines=None) -> str|None  # Paging for large functions
+binja.get_basic_blocks(func: str|int) -> list[dict]  # [{start, start_hex, end, end_hex, byte_length, instruction_count, successors, predecessors}, ...]
 
 # Cross References
-binja.get_xrefs_to(func: str|int) -> list[dict]         # [{from_function, from_address}, ...] - who calls this?
-binja.get_function_calls(func: str|int) -> list[dict]   # [{to_function, to_address}, ...] - what does this call?
-binja.get_data_xrefs_to(addr: int) -> list[dict]        # [{from_function, from_address}, ...]
-binja.get_data_xrefs_from(addr: int) -> list[dict]      # [{to_address}, ...]
+binja.get_xrefs_to(func: str|int) -> list[dict]         # [{from_function, from_address, from_address_hex}, ...] - who calls this?
+binja.get_xrefs_from(addr: int) -> list[dict]           # [{to_address, to_address_hex, to_function, type}, ...] - what does this reference?
+binja.get_function_calls(func: str|int) -> list[dict]   # [{to_function, to_address, to_address_hex, call_site, call_site_hex}, ...] - with call locations!
+binja.get_data_xrefs_to(addr: int) -> list[dict]        # [{from_function, from_address, from_address_hex}, ...]
+binja.get_data_xrefs_from(addr: int) -> list[dict]      # [{to_address}, ...] - data referenced by code at addr
 
 # Data Reading
 binja.read_bytes(addr: int, length: int) -> bytes|None
 binja.read_string(addr: int, max_length=256) -> str|None  # NUL-terminated UTF-8/latin-1
 binja.get_string_at(addr: int) -> str|None
 binja.get_data_var_at(addr: int) -> dict|None  # {address, type, name}
-binja.list_strings(limit=None, min_length=4, offset=0) -> list[dict]  # [{address, value, length, type}, ...]
+binja.list_strings(limit=None, min_length=4, offset=0) -> list[dict]  # [{address, address_hex, value, length, type}, ...]
 
 # Search & Lookup
-binja.find_bytes(pattern: bytes, start=None, end=None, limit=100) -> list[int]  # Returns up to 100 addresses by default
-binja.function_at(addr: int|str) -> str|None  # Function name containing address
+binja.find_bytes(pattern: bytes|str, start=None, end=None, limit=100) -> list[int]  # Hex string "48 89 e5" or bytes b"\x48\x89\xe5"
+binja.function_at(addr: int|str) -> dict|None  # {name, start, start_hex, end, end_hex, size} or None
 binja.get_comment(addr: int) -> str|None
 binja.get_function_comment(func: str|int) -> str|None
-binja.get_type(name: str) -> str|None  # User-defined type definition
+binja.get_type(name: str) -> str|None  # Structs/typedefs only. For functions use decompile() or function_at()
 
 ## MUTATIONS (return bool, tracked for rollback)
+# Note: Use checkpoint/rollback MCP tools for undo support (session-scoped, not persisted across restarts)
 
 # Renaming
 binja.rename_function(func: str|int, new_name: str) -> bool
@@ -130,6 +170,26 @@ binja.delete_skill(name: str) -> bool
 ## HELPERS
 binja.find_functions_calling_unsafe(unsafe_patterns=None) -> list[dict]  # Default patterns: strcpy, sprintf, gets, memcpy, malloc, etc.
 binja.get_function_complexity(func: str|int) -> dict|None  # {name, address, size, basic_blocks, cyclomatic_complexity, callers_count, callees_count, instruction_count}
+binja.help(method_name=None) -> str  # Get API docs: binja.help() for all, binja.help("decompile") for specific method
+
+## OUTPUT FORMATTING (use these for clean, readable output!)
+binja.print_table(data, columns=None, max_rows=None, addr_cols=None) -> str  # Pretty-print list of dicts as aligned table
+binja.summary(data) -> str                    # Smart summary - auto-formats dicts, lists, primitives
+binja.fmt_addr(addr, width=8) -> str          # Format as hex: 0x00401000
+binja.fmt_size(size) -> str                   # Format with units: "1.5 KB", "256 bytes"
+binja.fmt_hex(data, sep=" ") -> str           # Format bytes: "48 89 e5 41 56"
+
+# OUTPUT GUIDELINES:
+# - For lists of items: use binja.print_table() for clean aligned output
+# - For single dicts: use binja.summary() for readable key-value display
+# - For raw exploration: print() with f-strings is fine
+# - AVOID: print(json.dumps(...)) or print(result) for dicts - hard to read!
+#
+# Examples:
+#   binja.print_table(binja.list_functions(limit=20))
+#   binja.print_table(binja.list_imports(), columns=["name", "address"])
+#   binja.summary(binja.get_function_complexity("main"))
+#   print(f"Found at {binja.fmt_addr(addr)}: {binja.fmt_hex(data)}")
 
 # Note: Many functions return None on failure - always check before using!
 """

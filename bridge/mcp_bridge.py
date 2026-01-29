@@ -94,7 +94,7 @@ def handle_initialize(params: dict) -> dict:
         },
         "serverInfo": {
             "name": "binja-codemode-mcp",
-            "version": "0.1.3",
+            "version": "0.1.4",
         },
         "_meta": {
             "description": "Binary Ninja Code Mode MCP Server for LLM-assisted reverse engineering",
@@ -112,9 +112,9 @@ def handle_list_tools(params: dict) -> dict:
                 "name": "execute",
                 "description": (
                     "Execute Python analysis code against the current binary. "
-                    "Use the `binja` object for all operations. "
-                    "Output via print() is captured and returned. "
-                    "See the 'Binary Ninja API Reference' resource for complete API documentation."
+                    "Use the `binja` object for all operations. Output via print() is captured. "
+                    "Key methods: get_mlil(func), get_hlil(func), decompile(func, il_level='mlil'|'hlil'|'llil'), "
+                    "list_functions(), get_xrefs_to(func). Use binja.help() for full API docs."
                 ),
                 "inputSchema": {
                     "type": "object",

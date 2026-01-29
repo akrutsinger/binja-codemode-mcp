@@ -154,6 +154,7 @@ class CodeExecutor:
         # Restricted globals
         restricted_globals = {
             "binja": self.api,
+            "bv": self.api.bv,  # Direct BinaryView access (common in BN scripts)
             "print": progress_print,
             # Safe built-ins
             "len": len,
@@ -217,7 +218,7 @@ class CodeExecutor:
 
         def run_code():
             try:
-                exec(code, restricted_globals, {})
+                exec(code, restricted_globals)
                 result_holder["result"] = stdout_capture.getvalue()
             except Exception as e:
                 result_holder["error"] = (
