@@ -28,7 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AST validator already blocked direct dangerous calls; this closes the
   reach-via-dict gap too. Legitimate `import struct` / `class` statements now
   work because the curated builtins include `__import__` and `__build_class__`.
-
+- Expose __orig_import__ in sandbox builtins to stop shiboken SIGABRT
+  A sandboxed `import binaryninjaui` (or any transitive PySide6/shiboken6
+  import) aborted the whole Binary Ninja process with
+  `Fatal Python error: libshiboken: builtins has no "__orig_import__"
+  function` -> SIGABRT (exit 134).
+ 
 ## [0.1.3] - 2026-01-08
 
 ### Added
