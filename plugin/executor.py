@@ -1,6 +1,7 @@
 """Code validation and execution for Code Mode MCP."""
 
 import ast
+import builtins
 import threading
 import time
 import traceback
@@ -151,65 +152,51 @@ class CodeExecutor:
             elapsed = time.time() - start_time
             print(f"[{elapsed:.1f}s]", *args, file=stdout_capture, **kwargs)
 
-        # Restricted globals
+        # Restricted globals. We build a single namespace (no separate locals) so
+        # that top-level assignments and imports are visible to nested scopes -
+        # comprehensions, generator expressions, and helper `def`s. The old
+        # `exec(code, globals, {})` form landed top-level names in an isolated
+        # locals dict that nested scopes could not see, so every comprehension or
+        # helper referencing a top-level variable raised NameError.
+        #
+        # `__builtins__` is set EXPLICITLY to a curated dict. If it were omitted,
+        # `exec` would silently inject the FULL builtins (including `open`,
+        # `eval`, `exec`, `__import__`) - which is what happened before, making
+        # the sandbox looser than it appeared. The AST validator blocks direct
+        # calls to the dangerous names; restricting `__builtins__` closes the
+        # reach-via-dict gap too.
+        safe_builtin_names = (
+            "len", "range", "enumerate", "zip", "map", "filter", "sorted",
+            "reversed", "list", "dict", "set", "tuple", "frozenset", "str",
+            "int", "float", "bool", "bytes", "bytearray", "hex", "bin", "oct",
+            "ord", "chr", "abs", "min", "max", "sum", "round", "pow", "divmod",
+            "any", "all", "isinstance", "issubclass", "hasattr", "getattr",
+            "setattr", "delattr", "repr", "format", "slice", "iter", "next",
+            "type", "dir", "callable", "hash", "id", "ascii", "object",
+            "super", "memoryview", "complex", "staticmethod", "classmethod",
+            "property",
+            # Exceptions commonly caught by real analysis snippets
+            "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
+            "AttributeError", "RuntimeError", "StopIteration", "NameError",
+            "NotImplementedError",
+        )
+        safe_builtins = {name: getattr(builtins, name) for name in safe_builtin_names}
+        # `import` statements need __import__; `class` statements need
+        # __build_class__. Neither is reachable as a direct call/name - the AST
+        # validator blocks `__import__` (in _FORBIDDEN_ATTRIBUTES) and direct
+        # forbidden-module imports, so `import os` / `__import__("os")` stay
+        # blocked while legitimate `import struct` works, including inside helpers.
+        safe_builtins["__import__"] = builtins.__import__
+        safe_builtins["__build_class__"] = builtins.__build_class__
+        safe_builtins["__name__"] = "__main__"
+
         restricted_globals = {
+            "__builtins__": safe_builtins,
             "binja": self.api,
             "print": progress_print,
-            # Safe built-ins
-            "len": len,
-            "range": range,
-            "enumerate": enumerate,
-            "zip": zip,
-            "map": map,
-            "filter": filter,
-            "sorted": sorted,
-            "reversed": reversed,
-            "list": list,
-            "dict": dict,
-            "set": set,
-            "tuple": tuple,
-            "frozenset": frozenset,
-            "str": str,
-            "int": int,
-            "float": float,
-            "bool": bool,
-            "bytes": bytes,
-            "bytearray": bytearray,
-            "hex": hex,
-            "bin": bin,
-            "oct": oct,
-            "ord": ord,
-            "chr": chr,
-            "abs": abs,
-            "min": min,
-            "max": max,
-            "sum": sum,
-            "round": round,
-            "pow": pow,
-            "divmod": divmod,
-            "any": any,
-            "all": all,
-            "isinstance": isinstance,
-            "issubclass": issubclass,
-            "hasattr": hasattr,
-            "getattr": getattr,
-            "setattr": setattr,
-            "repr": repr,
-            "format": format,
-            "slice": slice,
-            "iter": iter,
-            "next": next,
             "None": None,
             "True": True,
             "False": False,
-            # Exceptions
-            "Exception": Exception,
-            "ValueError": ValueError,
-            "TypeError": TypeError,
-            "KeyError": KeyError,
-            "IndexError": IndexError,
-            "AttributeError": AttributeError,
-            "RuntimeError": RuntimeError,
         }
 
         # Execute with timeout
@@ -217,7 +204,7 @@ class CodeExecutor:
 
         def run_code():
             try:
-                exec(code, restricted_globals, {})
+                exec(code, restricted_globals)
                 result_holder["result"] = stdout_capture.getvalue()
             except Exception as e:
                 result_holder["error"] = (

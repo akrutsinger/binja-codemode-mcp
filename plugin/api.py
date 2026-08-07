@@ -740,6 +740,57 @@ class BinjaAPI:
         """Delete a workspace file."""
         return self._workspace.delete(name)
 
+    def list_open_views(self) -> list[dict]:
+        """Enumerate every binary open in the Binary Ninja GUI tabs.
+
+        Returns one dict per open view: {filename, short_name, start, end,
+        function_count, is_active}. `is_active` marks the view this API is
+        currently pinned to (``self._bv``). Returns an empty list (and never
+        raises) when the UI is unavailable - e.g. headless/no-GUI runs where
+        ``binaryninjaui`` cannot be imported.
+
+        Note: ``list_files()`` lists workspace files, NOT open binaries - the
+        two are unrelated and the names are easy to confuse.
+        """
+        try:
+            import binaryninjaui
+        except Exception:
+            return []
+
+        try:
+            active_short = self._bv.file.filename.split("/")[-1]
+        except Exception:
+            active_short = None
+
+        views = []
+        try:
+            for ctx in binaryninjaui.UIContext.allContexts():
+                get_tabs = getattr(ctx, "getTabs", None)
+                tabs = get_tabs() if callable(get_tabs) else []
+                for tab in tabs:
+                    vf = ctx.getViewFrameForTab(tab)
+                    if vf is None:
+                        continue
+                    bv = getattr(vf, "getCurrentBinaryView", lambda: None)()
+                    if bv is None:
+                        continue
+                    short = bv.file.filename.split("/")[-1]
+                    views.append(
+                        {
+                            "filename": bv.file.filename,
+                            "short_name": short,
+                            "start": bv.start,
+                            "end": bv.end,
+                            "function_count": len(list(bv.functions)),
+                            "is_active": short == active_short,
+                        }
+                    )
+        except Exception:
+            # A UI API change should not crash the sandbox; return what we have.
+            pass
+
+        return views
+
     # =========================================================================
     # Skills Operations
     # =========================================================================

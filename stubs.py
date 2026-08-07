@@ -118,8 +118,18 @@ binja.delete_function_comment(func: str|int) -> bool
 ## WORKSPACE (file persistence)
 binja.write_file(name: str, content: str) -> bool
 binja.read_file(name: str) -> str|None
-binja.list_files() -> list[dict]  # [{name, size, modified}, ...]
+binja.list_files() -> list[dict]  # [{name, size, modified}, ...] - WORKSPACE files, NOT open binaries
 binja.delete_file(name: str) -> bool
+
+## OPEN VIEWS (which binaries are loaded)
+binja.list_open_views() -> list[dict]  # [{filename, short_name, start, end, function_count, is_active}, ...]
+# Enumerates every binary open in the GUI. `is_active` marks the view `binja`
+# is pinned to. To operate on a non-active view, grab it from the raw API:
+#   import binaryninjaui
+#   ctx = binaryninjaui.UIContext.allContexts()[0]
+#   views = {t.getCurrentBinaryView().file.filename.split('/')[-1]: t.getCurrentBinaryView()
+#            for t in (ctx.getViewFrameForTab(t) for t in ctx.getTabs())}
+# then use e.g. views['Client.exe.bndb'].read(addr, n) directly. (Returns [] in headless/no-UI runs.)
 
 ## SKILLS (reusable code)
 binja.save_skill(name: str, code: str, description: str) -> bool
@@ -132,6 +142,15 @@ binja.find_functions_calling_unsafe(unsafe_patterns=None) -> list[dict]  # Defau
 binja.get_function_complexity(func: str|int) -> dict|None  # {name, address, size, basic_blocks, cyclomatic_complexity, callers_count, callees_count, instruction_count}
 
 # Note: Many functions return None on failure - always check before using!
+#
+# Code runs in a normal Python namespace: top-level variables, comprehensions,
+# generator expressions, helper `def`s, `import` (including inside helpers), and
+# `class` statements all work as expected. You do NOT need to inline helpers or
+# avoid comprehensions - define a top-level `x` and reference it from a helper
+# or a `[i for i in range(x)]` freely. Forbidden modules (os, subprocess, ...)
+# and builtins (open, eval, exec, __import__ direct calls) are blocked at parse
+# time; use `int.from_bytes(b, "little")` only when you prefer it, not because
+# `struct` is unavailable - `import struct` is allowed.
 """
 
     return (
