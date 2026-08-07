@@ -186,9 +186,34 @@ class CodeExecutor:
         # validator blocks `__import__` (in _FORBIDDEN_ATTRIBUTES) and direct
         # forbidden-module imports, so `import os` / `__import__("os")` stay
         # blocked while legitimate `import struct` works, including inside helpers.
-        safe_builtins["__import__"] = builtins.__import__
+        #
+        # Resolve the TRUE original import function, not whatever
+        # builtins.__import__ currently is. PySide6's feature system
+        # (imported transitively via binaryninjaui -> shiboken6) monkeypatches
+        # builtins.__import__ with its own __feature_import__ hook and stashes
+        # the real one as builtins.__orig_import__. If we copied the hook into
+        # the sandbox, every `import` would route through the hook, which itself
+        # calls __orig_import__ - and if we'd set both to the hook that's
+        # instant infinite recursion (RecursionError on `import binaryninjaui`).
+        # Using the unhooked original bypasses the feature hook for sandbox
+        # code (which has no need for PySide feature selection) and terminates.
+        _real_import = getattr(builtins, "__orig_import__", None) or builtins.__import__
+        safe_builtins["__import__"] = _real_import
         safe_builtins["__build_class__"] = builtins.__build_class__
         safe_builtins["__name__"] = "__main__"
+        # `__orig_import__` is the name shiboken6 looks up on the active frame's
+        # `__builtins__` during its module init (PyDict_GetItemString(builtins,
+        # "__orig_import__")). On a miss it calls Py_FatalError ->
+        # `Fatal Python error: libshiboken: builtins has no "__orig_import__"
+        # function`, which aborts the whole Binary Ninja process (SIGABRT, exit
+        # 134). Because our curated dict replaced `__builtins__`, a sandboxed
+        # `import binaryninjaui` (e.g. a pasted view-enumerator snippet) used to
+        # take the container down with no recovery short of a full restart.
+        # Mirror the same unhooked original here so the lookup resolves. This
+        # opens no new path: it is the same vetted import function, and the AST
+        # validator still blocks forbidden module names at the `import`
+        # statement level and `__import__` as a direct call/name.
+        safe_builtins["__orig_import__"] = _real_import
 
         restricted_globals = {
             "__builtins__": safe_builtins,

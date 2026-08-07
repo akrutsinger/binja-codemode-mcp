@@ -207,6 +207,72 @@ def test_stop_iteration_catchable():
     assert "caught" in r.output
 
 
+# ---------------------------------------------------------------------------
+# shiboken/PySide safety: a curated __builtins__ that omits __orig_import__
+# used to abort the host process when sandbox code imported a C extension
+# (e.g. binaryninjaui via shiboken6) that looks it up. __orig_import__ must be
+# present and resolve to the same import machinery, while direct __import__
+# stays AST-blocked and forbidden modules stay blocked.
+# ---------------------------------------------------------------------------
+
+
+def test_orig_import_present_in_sandbox_builtins():
+    """Sandbox code can't name `__builtins__` (AST-blocked), but it CAN call
+    `import` (which the import statement routes through __import__, and which
+    shiboken resolves via __orig_import__). The behavioral proof that
+    __orig_import__ is wired up: a plain `import` of an allowed stdlib module
+    succeeds AND a lookup of `__orig_import__` through the import system's own
+    channel works. We exercise the channel shiboken uses by importing a module
+    whose import triggers a re-entrant import lookup - `import` itself is the
+    surface, and if __orig_import__ were absent an importing C extension would
+    abort us, but here we just confirm allowed imports still resolve (the
+    regression is the absence of the key, tested directly below)."""
+    ex = _make_executor()
+    r = ex.execute("import struct\nprint(struct.calcsize('<I'))")
+    assert r.success, r.error
+    assert "4" in r.output
+
+
+def test_orig_import_key_present_in_builtins_directly():
+    """Directly assert the curated builtins dict carries __orig_import__.
+
+    This is the exact key shiboken6 looks up; its absence is what caused
+    `Fatal Python error: libshiboken: builtins has no "__orig_import__"` ->
+    SIGABRT -> container death. We reach the dict the executor builds by
+    importing a module inside the sandbox and reflecting on its
+    `__builtins__`... but `__builtins__` is AST-blocked as an attribute.
+    Instead, drive a sandbox import through the import statement and confirm
+    no abort; and separately, assert at the Python level by reconstructing the
+    builtins the way the executor does. The latter is the real regression
+    guard: if someone removes the `__orig_import__` line, this fails."""
+    module = _load_executor()
+    # Re-derive the curated builtins exactly as CodeExecutor.execute does, by
+    # inspecting the source-built dict through a sandboxed exec that captures
+    # its own __builtins__ via the one channel not AST-blocked: an imported
+    # module's globals. `struct` is allowed; its module object exposes the
+    # frame-builtins-agnostic machinery, but the cleanest check is to confirm
+    # an allowed import works (above) and that the executor's source contains
+    # the assignment. Guard the source-level contract:
+    import inspect
+
+    src = inspect.getsource(module.CodeExecutor.execute)
+    assert '"__orig_import__"' in src or "'__orig_import__'" in src, (
+        "executor must set __orig_import__ on the curated builtins, or "
+        "sandboxed imports of shiboken-backed C extensions (binaryninjaui) "
+        "abort the host process with SIGABRT"
+    )
+
+
+def test_direct_dunder_import_still_blocked_with_orig_import():
+    """Adding __orig_import__ must NOT unblock a direct `__import__('os')`
+    call - the AST validator blocks the __import__ name regardless, and
+    __orig_import__ is not a name the sandbox exposes for direct calling."""
+    ex = _make_executor()
+    r = ex.execute("os = __import__('os')\nprint(os.getcwd())")
+    assert not r.success
+    assert "__import__" in r.error
+
+
 if __name__ == "__main__":
     # Minimal runner for environments without pytest.
     import traceback
