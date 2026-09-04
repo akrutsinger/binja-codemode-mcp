@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
 - `get_all_xrefs()` documented its result keys as `to`/`from`; they are `xrefs_to`/`xrefs_from`
 - `analyze_functions_batch()` returns a `next_offset` key that was undocumented
+- Functions defined by executed code could not see variables that code had assigned, raising
+  `NameError`. Globals and locals were separate dicts, so a function body resolving a global
+  never found names bound at the top level of the submitted script
 - The status widget's headless guard caught only `ImportError`, but `binaryninjaui` raises
   `UIPluginInHeadlessError`, so importing the plugin outside the GUI crashed
 

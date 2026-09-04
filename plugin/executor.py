@@ -78,7 +78,9 @@ class CodeExecutor:
 
         def run_code():
             try:
-                exec(code, namespace, {})
+                # One dict for globals and locals: with separate ones, a function defined by the
+                # code cannot see the names the code assigned, since its body resolves globals.
+                exec(code, namespace)
                 result_holder["result"] = stdout_capture.getvalue()
             except Exception as e:
                 result_holder["error"] = (
