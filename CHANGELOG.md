@@ -125,6 +125,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `describe()` no longer refuses a bare name that sits on more than one type. Widening the
+  discovery roots took the share of ambiguous bare names from 6% to 29%, so a third of lookups
+  would have cost a round trip to learn a qualification the caller usually did not care about.
+  Ties now break towards the earliest entry in the roots list, which is ordered by how central the
+  type is, and the result carries `also_defined_on` naming the types that lost, so the choice is
+  visible rather than silent
 - Checkpoint and rollback never worked. `StateTracker` read the undo stack through
   `bv.undoable_actions()`, which is not a `BinaryView` method; `create_checkpoint()` swallowed the
   `AttributeError` and recorded a depth of 0 while reporting success, and `rollback()` swallowed

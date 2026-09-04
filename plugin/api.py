@@ -997,13 +997,20 @@ class BinjaAPI:
     def describe(self, name: str) -> dict:
         """Full signature and docstring for one Binary Ninja API member.
 
+        Takes a qualified name like "BinaryView.read" or a bare one like "read". A bare name that
+        sits on several types resolves to the most central one and reports the rest.
+
         Returns:
-            {name, kind, signature, doc}
+            {name, kind, signature, doc} plus also_defined_on when the bare name was ambiguous
         """
         members = _binaryninja_members()
+        others = []
         if name not in members:
-            name = _resolve_member_name(name, members)
-        return _describe_member(name, members[name], summary_only=False)
+            name, others = _resolve_member_name(name, members)
+        detail = _describe_member(name, members[name], summary_only=False)
+        if others:
+            detail["also_defined_on"] = others
+        return detail
 
 
 # Where search_api() and describe() look, plus the module's own top-level functions. This is the
@@ -1110,14 +1117,23 @@ def _describe_member(name: str, member, summary_only: bool = True) -> dict:
     return entry
 
 
-def _resolve_member_name(name: str, members: dict) -> str:
-    """Accept a bare member name, so describe('get_functions_containing') works."""
-    candidates = [key for key in members if key.split(".")[-1] == name]
-    if len(candidates) == 1:
-        return candidates[0]
-    if candidates:
+def _resolve_member_name(name: str, members: dict) -> tuple[str, list[str]]:
+    """Accept a bare member name, so describe('get_functions_containing') works.
+
+    Roughly a third of bare names sit on more than one type, and refusing to answer without a
+    qualified name costs a round trip to learn something the caller usually did not care about.
+    Ties break towards the earliest entry in _DISCOVERY_ROOTS, which is ordered by how central the
+    type is to analysis code, so a bare name lands on BinaryView before FileMetadata. The result
+    is qualified and names the types that lost the tie, so the choice is visible rather than
+    silent.
+    """
+    order = {root: index for index, root in enumerate(_DISCOVERY_ROOTS)}
+    candidates = sorted(
+        (key for key in members if key.split(".")[-1] == name),
+        key=lambda key: (order.get(key.split(".")[0], len(order)), key),
+    )
+    if not candidates:
         raise BinjaAPIError(
-            f"{name!r} exists on several types: {', '.join(sorted(candidates))}. "
-            f"Pass the qualified name."
+            f"No Binary Ninja API member named {name!r}. Use search_api() to find one."
         )
-    raise BinjaAPIError(f"No Binary Ninja API member named {name!r}. Use search_api() to find one.")
+    return candidates[0], candidates[1:]
