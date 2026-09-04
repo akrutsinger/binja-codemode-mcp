@@ -26,13 +26,13 @@ After installation, the plugin will be located in the community [plugins](https:
 
 ```bash
 # Linux
-~/.binaryninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/
+~/.binaryninja/repositories/community/plugins/binja_codemode_mcp/
 
 # macOS
-~/Library/Application Support/Binary Ninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/
+~/Library/Application Support/Binary Ninja/repositories/community/plugins/binja_codemode_mcp/
 
 # Windows
-%APPDATA%\Binary Ninja\plugins\repositories\community\plugins\akrutsinger_binja_codemode_mcp\
+%APPDATA%\Binary Ninja\repositories\community\plugins\binja_codemode_mcp\
 ```
 
 ### Method 2: Manual Installation
@@ -54,9 +54,21 @@ copy plugin\ %APPDATA%\Binary Ninja\plugins\binja_codemode_mcp\
 
 Configure your MCP client to communicate with the plugin. The path to `mcp_bridge.py` depends on your installation method.
 
-### For Plugin Manager Installation 
+### For Plugin Manager Installation
+
+[**Claude Code**](https://claude.com/claude-code) — one command, no config file to edit:
+
+```bash
+claude mcp add binja-codemode-mcp -s user -- \
+  python3 ~/.binaryninja/repositories/community/plugins/binja_codemode_mcp/bridge/mcp_bridge.py
+```
+
+- `-s user` registers the server for every project. Omit it to scope the server to the current project only, or use `-s project` to write a shared `.mcp.json` you can commit.
+- The bridge defaults to `http://127.0.0.1:42069` and the default API key, so no environment variables are needed. For a custom port or key, add `-e BINJA_MCP_URL=... -e BINJA_MCP_KEY=...` before the `--` (see [Custom API Key](#custom-api-key-optional)).
+- Verify with `claude mcp list`, or `/mcp` inside a session. Remove with `claude mcp remove binja-codemode-mcp`.
 
 [**Zed**](https://zed.dev/) (`Agent Panel > ... > Add Custom Server...`):
+
 ```json
 {
   /// The name of your MCP server
@@ -64,7 +76,9 @@ Configure your MCP client to communicate with the plugin. The path to `mcp_bridg
     /// The command which runs the MCP server
     "command": "python3",
     /// The arguments to pass to the MCP server
-    "args": ["~/.binaryninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/bridge/mcp_bridge.py"],
+    "args": [
+      "/home/YOUR_USER/.binaryninja/repositories/community/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"
+    ],
     /// The environment variables to set
     "env": {
       "BINJA_MCP_URL": "http://127.0.0.1:42069",
@@ -75,12 +89,15 @@ Configure your MCP client to communicate with the plugin. The path to `mcp_bridg
 ```
 
 [**Claude Desktop**](https://www.claude.com/download) (`Settings > Developer > Edit Config`):
+
 ```json
 {
   "mcpServers": {
     "binja-codemode-mcp": {
       "command": "python3",
-      "args": ["~/Library/Application Support/Binary Ninja/plugins/repositories/community/plugins/akrutsinger_binja_codemode_mcp/bridge/mcp_bridge.py"],
+      "args": [
+        "/Users/YOUR_USER/Library/Application Support/Binary Ninja/repositories/community/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"
+      ],
       "env": {
         "BINJA_MCP_URL": "http://127.0.0.1:42069",
         "BINJA_MCP_KEY": "binja-codemode-local"
@@ -90,18 +107,27 @@ Configure your MCP client to communicate with the plugin. The path to `mcp_bridg
 }
 ```
 
-**Note:** Use absolute paths. Replace `~` with your home directory path if needed, and adjust for your OS.
+> **Note:** Use absolute paths in the JSON `args` array. MCP clients launch the bridge directly without a shell, so a leading `~` is passed through literally and the script will not be found. Replace `YOUR_USER` with your username and adjust for your OS.
 
 ### For Manual Installation
 
-Use these paths instead:
+Manual installs live under the plugins folder rather than the plugin manager's `repositories/` tree. Use these paths instead:
+
 - Linux: `~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py`
 - macOS: `~/Library/Application Support/Binary Ninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py`
 - Windows: `%APPDATA%\Binary Ninja\plugins\binja_codemode_mcp\bridge\mcp_bridge.py`
 
+For Claude Code:
+
+```bash
+claude mcp add binja-codemode-mcp -s user -- \
+  python3 ~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py
+```
+
 ### Custom API Key (Optional)
 
 To use a custom API key instead of the default API key, create `~/.binaryninja/codemode_mcp/config.json`:
+
 ```json
 {
   "api_key": "your-custom-key"
@@ -113,12 +139,14 @@ Then update your MCP client config to use the same key in `BINJA_MCP_KEY`.
 ### Logging Configuration (Optional)
 
 Set `BINJA_MCP_LOG_LEVEL` environment variable to control logging output (stderr):
+
 ```bash
 # Options: DEBUG, INFO (default), WARNING, ERROR, CRITICAL
 export BINJA_MCP_LOG_LEVEL=DEBUG
 ```
 
 Or add to your MCP client config:
+
 ```json
 "env": {
   "BINJA_MCP_URL": "http://127.0.0.1:42069",
@@ -134,6 +162,7 @@ Or add to your MCP client config:
 3. In your MCP client (Claude, Zed, etc.), start prompting!
 
 ### Example Prompts
+
 ```
 "List all functions that reference memcpy and check if they validate buffer sizes"
 
@@ -159,7 +188,9 @@ Or add to your MCP client config:
 The Python code written by the LLM has access to the `binja` object with these methods:
 
 ### Query
+
 **Binary Info**
+
 - `binja.get_binary_status()` - Binary metadata
 - `binja.list_functions()` - All functions
 - `binja.analyze_function_batch()` - Batched function alaysis
@@ -171,12 +202,14 @@ The Python code written by the LLM has access to the `binja` object with these m
 - `binja.list_data_items()` - Data items
 
 **Code Analysis**
+
 - `binja.decompile()` - Get pseudocode
 - `binja.get_assembly()` - Get disassembly
 - `binja.get_basic_blocks()` - Basic function info
 - `binja.get_control_flow_graph()` - Get CFG nodes and edges
 
 **Cross References**
+
 - `binja.get_xrefs_to()` - Find callers
 - `binja.get_function_calls()` - Find callees
 - `binja.get_data_xrefs_to()` - Data references to address
@@ -185,6 +218,7 @@ The Python code written by the LLM has access to the `binja` object with these m
 - `binja.find_xref_chains()` - Find call chains between functions
 
 **Data Reading**
+
 - `binja.read_bytes()` - Read raw bytes
 - `binja.read_string()` - Read string
 - `binja.get_string_at()` - Get string info
@@ -192,6 +226,7 @@ The Python code written by the LLM has access to the `binja` object with these m
 - `binja.list_strings()` - List all strings
 
 **Search & Lookup**
+
 - `binja.find_bytes()` - Search for byte pattern
 - `binja.search_decompiled()` - Search in decompiled HLIL code
 - `binja.function_at()` - Get function by address or name
@@ -202,24 +237,28 @@ The Python code written by the LLM has access to the `binja` object with these m
 ### Mutations
 
 **Renaming**
+
 - `binja.rename_function(func, name)` - Rename function
 - `binja.rename_data()` - Rename data
 - `binja.rename_variable(func, old, new)` - Rename variable
 - `binja.bulk_rename()` - Batch rename multiple items
 
 **Typing**
+
 - `binja.retype_variable()` - Retype variable
 - `binja.define_type()` - Define struct/type
 - `binja.set_function_signature()` - Set prototype
 - `binja.batch_set_types()` - Batch update types
 
 **Comments**
+
 - `binja.set_comment()` - Add comment
 - `binja.set_function_comment()` - Add function comment
 - `binja.delete_comment()` - Delete comment
 - `binja.delete_function_comment()` - Delete function comment
 
 **Binary Patching**
+
 - `binja.patch_bytes()` - Patch bytes at address
 - `binja.nop_range()` - NOP out instruction range
 - `binja.assemble_at()` - Assemble and patch instructions
@@ -227,20 +266,23 @@ The Python code written by the LLM has access to the `binja` object with these m
 ### Workspace
 
 **File Persistence**
+
 - `binja.write_file()` - Save to workspace
 - `binja.read_file()` - Read from workspace
 - `binja.list_files()` - List workspace files
-- `binja.delete_file()` - Delete workspace 
+- `binja.delete_file()` - Delete workspace
 
 ### Skills
 
 **Reusable Code**
+
 - `binja.save_skill(name, code, desc)` - Save reusable code
 - `binja.load_skill(name)` - Load a skill
 - `binja.list_skills()` - List saved skills
 - `binja.delete_skill()` - Delete a skill
 
 ### Helpers
+
 - `binja.find_functions_calling_unsafe()` - Find functions calling potentially unsafe functions
 - `binja.get_function_complexity()` - Get cyclomatic complexity
 
@@ -257,4 +299,4 @@ A basic level of security in attempt to prevent some misuse:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+[MIT](LICENSE)
