@@ -379,33 +379,31 @@ class BinjaAPI:
         return results
 
     def get_data_xrefs_to(self, addr: int) -> list[dict]:
-        """Get cross-references to data address.
+        """Get data references to an address: the data that points at it.
+
+        Code references are not included; get_all_xrefs() reports both.
 
         Returns:
-            [{from_function, from_address}, ...]
+            [{from_address, from_function}, ...]
         """
         results = []
-        for ref in self._bv.get_code_refs(addr):
-            caller = self._bv.get_functions_containing(ref.address)
-            if caller:
-                results.append(
-                    {
-                        "from_function": caller[0].name,
-                        "from_address": ref.address,
-                    }
-                )
+        for ref in self._bv.get_data_refs(addr):
+            source = self._bv.get_functions_containing(ref)
+            results.append(
+                {
+                    "from_address": ref,
+                    "from_function": source[0].name if source else None,
+                }
+            )
         return results
 
     def get_data_xrefs_from(self, addr: int) -> list[dict]:
-        """Get data references from address.
+        """Get data references from an address: what the data there points at.
 
         Returns:
             [{to_address}, ...]
         """
-        results = []
-        for ref in self._bv.get_data_refs(addr):
-            results.append({"to_address": ref})
-        return results
+        return [{"to_address": ref} for ref in self._bv.get_data_refs_from(addr)]
 
     def get_all_xrefs(
         self, addr: int, include_data: bool = True, include_code: bool = True
@@ -423,7 +421,7 @@ class BinjaAPI:
         xrefs_to = []
         xrefs_from = []
 
-        # Code xrefs TO this address
+        # Code that points at this address.
         if include_code:
             for ref in self._bv.get_code_refs(addr):
                 caller = self._bv.get_functions_containing(ref.address)
@@ -435,21 +433,25 @@ class BinjaAPI:
                     }
                 )
 
-        # Data xrefs TO this address
         if include_data:
-            for ref in self._bv.get_data_refs_from(addr):
-                xrefs_from.append({"type": "data", "to_address": ref})
-
-        # Get function at address for data refs FROM
-        funcs = self._bv.get_functions_containing(addr)
-        if funcs and include_data:
+            # get_data_refs() points inward and get_data_refs_from() outward, so they belong in
+            # different buckets.
             for ref in self._bv.get_data_refs(addr):
-                target_funcs = self._bv.get_functions_containing(ref)
+                source = self._bv.get_functions_containing(ref)
+                xrefs_to.append(
+                    {
+                        "type": "data",
+                        "from_address": ref,
+                        "from_function": source[0].name if source else None,
+                    }
+                )
+            for ref in self._bv.get_data_refs_from(addr):
+                target = self._bv.get_functions_containing(ref)
                 xrefs_from.append(
                     {
                         "type": "data",
                         "to_address": ref,
-                        "to_function": target_funcs[0].name if target_funcs else None,
+                        "to_function": target[0].name if target else None,
                     }
                 )
 
@@ -946,18 +948,27 @@ class BinjaAPI:
 
         Args:
             mapping: Dict of {old_name: new_name}
-            target_type: Type of items to rename - 'function', 'data', or 'variable'
+            target_type: Type of items to rename - 'function' or 'data'. Variables are not
+                         renameable in bulk: a variable name only identifies one inside a
+                         function, so use rename_variable() per function.
 
         Returns:
             {success_count, failed: [{old_name, new_name, error}], total}
         """
+        if target_type not in ("function", "data"):
+            # Raised rather than reported per entry: the caller named a mode that does not
+            # exist, so every entry would fail for the same reason.
+            raise BinjaAPIError(
+                f"unsupported target_type {target_type!r}; expected 'function' or 'data'"
+            )
+
         results = {"success_count": 0, "failed": [], "total": len(mapping)}
 
         for old_name, new_name in mapping.items():
             try:
                 if target_type == "function":
                     success = self.rename_function(old_name, new_name)
-                elif target_type == "data":
+                else:
                     # Try to parse as address
                     try:
                         addr = (
@@ -968,8 +979,6 @@ class BinjaAPI:
                         success = self.rename_data(addr, new_name)
                     except ValueError:
                         success = False
-                else:
-                    success = False
 
                 if success:
                     results["success_count"] += 1
