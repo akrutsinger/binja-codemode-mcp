@@ -70,6 +70,7 @@ class BinjaCodeModeMCP:
             api = components["BinjaAPI"](bv, state, workspace, skills)
             executor = components["CodeExecutor"](
                 api,
+                bv,
                 max_output_bytes=self._config.max_output_bytes,
                 timeout=self._config.execution_timeout_s,
             )

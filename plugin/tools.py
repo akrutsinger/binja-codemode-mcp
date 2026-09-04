@@ -19,7 +19,11 @@ AVAILABLE METHODS
 
 _GUIDE = """
 ENVIRONMENT
-- The methods above hang off `binja`, which is already in scope. Do not import or construct it.
+- Three names are already in scope: `binja` carries the methods above, `bv` is the raw
+  BinaryView, and `bn` is the binaryninja module. Do not import or construct them.
+- The methods above are convenience wrappers that return plain JSON-friendly values. Anything
+  they do not cover, reach through `bv` and `bn` directly.
+- This is ordinary CPython inside Binary Ninja, so the whole standard library is importable.
 - Both what you print() and the value of the last expression come back, so a trailing bare
   expression needs no print().
 - Ending on a bare collection dumps all of it. Results are truncated at ~6,000 tokens, so

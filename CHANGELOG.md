@@ -19,9 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bv` and `bn` are now in scope for executed code, alongside `binja` - the raw `BinaryView` and
+  the `binaryninja` module. The wrapper methods are a convenience layer, not a limit
 - `list_methods()` - Re-emit the API reference from inside the execution namespace, for when the
   tool description reaches the model truncated
-
 - `search_decompiled()` - Search for patterns in HLIL decompiled code with regex support
 - `get_control_flow_graph()` - Export CFG structure with nodes and edges for graph analysis
 - `get_all_xrefs()` - Unified view of all code/data cross-references to/from an address
@@ -31,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `patch_bytes()` - Patch bytes at address with original/patched byte tracking
 - `nop_range()` - NOP out instruction ranges
 - `assemble_at()` - Assemble instructions and patch in-place
+
+### Removed
+
+- The AST validator that rejected imports of `os`, `sys` and friends, and the "safe builtins"
+  allowlist. Neither was a security boundary: `exec()` with a globals dict that has no
+  `__builtins__` key gets the real builtins module injected by CPython, so `open()` and every
+  import already worked, and the AST check was syntax-only (`getattr(f, "__globals__")` walked
+  straight past it). The code runs in Binary Ninja's process with its privileges; localhost
+  binding and the API key are the boundary, and the docs now say so
 
 ### Fixed
 
