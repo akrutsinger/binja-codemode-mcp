@@ -115,7 +115,7 @@ _ROLLBACK_TOOL = {
 
 
 def build_tool_definitions(surface, state_summary=""):
-    """Build every tools/list entry the bridge serves."""
+    """Build every tools/list entry the server advertises."""
     return [
         build_tool_definition(surface, state_summary),
         _CHECKPOINT_TOOL,

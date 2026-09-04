@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The plugin now speaks MCP directly over Streamable HTTP at `http://127.0.0.1:42069/mcp`, so
+  there is no bridge process. Clients register the URL and a bearer token instead of a path to a
+  script, which means the configuration no longer depends on how the plugin was installed. The
+  plugin's own REST API (`/execute`, `/checkpoint`, `/rollback`, `/status`, `/tools`, `/skills`,
+  `/files`, `/checkpoints`) is gone with it: there is one endpoint, and it speaks the protocol the
+  client already speaks
+- JSON-RPC handling gained what the bridge never had: protocol version negotiation, the specified
+  error codes, notifications answered with `202` rather than a response, and a handler crash
+  reported as `-32603` instead of taking the connection down
+- Requests carrying a non-localhost `Origin` are refused, the DNS-rebinding guard the MCP spec
+  asks of local servers. Clients send no `Origin` at all, so only a browser sees this
 - The API reference the LLM reads is now generated from `BinjaAPI` by introspection and delivered
   in the `execute` tool description, where it is always in context. Previously it was hand-written
   in `stubs.py` and offered as an MCP resource that most clients never read. Adding a method to
@@ -17,9 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `max_output_bytes` (100,000, roughly 25,000 tokens). An over-budget result says what the whole
   result would have cost and how to narrow it, instead of just "(output truncated)"
 - `print()` no longer stamps `[0.0s]` on every line, which taxed every printed row
-- The MCP bridge fetches its tool definitions and version from the plugin rather than hardcoding
-  them, so the plugin is the only place a tool is defined. With Binary Ninja not running, the
-  bridge advertises `execute` with a description saying how to start the server
 
 ### Added
 
@@ -49,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- `bridge/mcp_bridge.py`, and with it `BINJA_MCP_URL`, `BINJA_MCP_KEY` and `BINJA_MCP_LOG_LEVEL`.
+  The bridge existed to translate stdio to HTTP because MCP had no HTTP transport when the plugin
+  was written; it has had one since protocol 2025-03-26. Clients that still speak only stdio can
+  front the server with `mcp-remote` (see the README)
+- The placeholder `execute` tool the bridge advertised when Binary Ninja was not running. With no
+  bridge process there is nothing to answer when the server is down, which is the honest signal
 - The AST validator that rejected imports of `os`, `sys` and friends, and the "safe builtins"
   allowlist. Neither was a security boundary: `exec()` with a globals dict that has no
   `__builtins__` key gets the real builtins module injected by CPython, so `open()` and every

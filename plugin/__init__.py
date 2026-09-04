@@ -89,7 +89,11 @@ class BinjaCodeModeMCP:
             log_info(f"  URL: {url}")
             log_info(f"  API Key: {self._config.api_key}")
             log_info("=" * 42)
-            log_info("Configure your MCP client with the above credentials.")
+            log_info("Register it with an MCP client that speaks HTTP, for example:")
+            log_info(
+                f"  claude mcp add binja-codemode-mcp -s user --transport http {url} "
+                f'--header "Authorization: Bearer {self._config.api_key}"'
+            )
             update_status(True)
         except Exception as e:
             log_error(f"Failed to start Code Mode MCP server: {e}")
@@ -127,7 +131,7 @@ class BinjaCodeModeMCP:
             return
 
         log_info("Code Mode MCP server: RUNNING")
-        log_info(f"  URL: http://{self._config.host}:{self._config.port}")
+        log_info(f"  URL: {self._server.url}")
         log_info(f"  Workspace: {self._config.workspace_dir}")
         log_info(f"  Skills: {self._config.skills_dir}")
 

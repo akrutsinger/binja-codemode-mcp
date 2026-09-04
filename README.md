@@ -55,76 +55,53 @@ copy plugin\ %APPDATA%\Binary Ninja\plugins\binja_codemode_mcp\
 
 ## MCP Client Configuration
 
-Configure your MCP client to communicate with the plugin. The path to `mcp_bridge.py` depends on your installation method.
-
-### For Plugin Manager Installation
+The plugin serves MCP over HTTP at `http://127.0.0.1:42069/mcp`, authenticated with a bearer
+token. There is no bridge script to launch, so the configuration no longer depends on where the
+plugin was installed: point your client at the URL.
 
 [**Claude Code**](https://claude.com/claude-code) — one command, no config file to edit:
 
 ```bash
-claude mcp add binja-codemode-mcp -s user -- \
-  python3 ~/.binaryninja/repositories/community/plugins/binja_codemode_mcp/bridge/mcp_bridge.py
+claude mcp add binja-codemode-mcp -s user --transport http \
+  http://127.0.0.1:42069/mcp \
+  --header "Authorization: Bearer binja-codemode-local"
 ```
 
 - `-s user` registers the server for every project. Omit it to scope the server to the current project only, or use `-s project` to write a shared `.mcp.json` you can commit.
-- The bridge defaults to `http://127.0.0.1:42069` and the default API key, so no environment variables are needed. For a custom port or key, add `-e BINJA_MCP_URL=... -e BINJA_MCP_KEY=...` before the `--` (see [Custom API Key](#custom-api-key-optional)).
 - Verify with `claude mcp list`, or `/mcp` inside a session. Remove with `claude mcp remove binja-codemode-mcp`.
 
-[**Zed**](https://zed.dev/) (`Agent Panel > ... > Add Custom Server...`):
-
-```json
-{
-  /// The name of your MCP server
-  "binja-codemode-mcp": {
-    /// The command which runs the MCP server
-    "command": "python3",
-    /// The arguments to pass to the MCP server
-    "args": [
-      "/home/YOUR_USER/.binaryninja/repositories/community/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"
-    ],
-    /// The environment variables to set
-    "env": {
-      "BINJA_MCP_URL": "http://127.0.0.1:42069",
-      "BINJA_MCP_KEY": "binja-codemode-local"
-    }
-  }
-}
-```
-
-[**Claude Desktop**](https://www.claude.com/download) (`Settings > Developer > Edit Config`):
+**Clients configured by JSON** (`.mcp.json`, Claude Desktop, Zed and others) take the same three
+values. Check your client's docs for the exact key names; the shape is usually:
 
 ```json
 {
   "mcpServers": {
     "binja-codemode-mcp": {
-      "command": "python3",
-      "args": [
-        "/Users/YOUR_USER/Library/Application Support/Binary Ninja/repositories/community/plugins/binja_codemode_mcp/bridge/mcp_bridge.py"
-      ],
-      "env": {
-        "BINJA_MCP_URL": "http://127.0.0.1:42069",
-        "BINJA_MCP_KEY": "binja-codemode-local"
+      "type": "http",
+      "url": "http://127.0.0.1:42069/mcp",
+      "headers": {
+        "Authorization": "Bearer binja-codemode-local"
       }
     }
   }
 }
 ```
 
-> **Note:** Use absolute paths in the JSON `args` array. MCP clients launch the bridge directly without a shell, so a leading `~` is passed through literally and the script will not be found. Replace `YOUR_USER` with your username and adjust for your OS.
+**Clients that only speak stdio** can front the server with
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
 
-### For Manual Installation
-
-Manual installs live under the plugins folder rather than the plugin manager's `repositories/` tree. Use these paths instead:
-
-- Linux: `~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py`
-- macOS: `~/Library/Application Support/Binary Ninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py`
-- Windows: `%APPDATA%\Binary Ninja\plugins\binja_codemode_mcp\bridge\mcp_bridge.py`
-
-For Claude Code:
-
-```bash
-claude mcp add binja-codemode-mcp -s user -- \
-  python3 ~/.binaryninja/plugins/binja_codemode_mcp/bridge/mcp_bridge.py
+```json
+{
+  "mcpServers": {
+    "binja-codemode-mcp": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote", "http://127.0.0.1:42069/mcp",
+        "--header", "Authorization: Bearer binja-codemode-local"
+      ]
+    }
+  }
+}
 ```
 
 ### Custom API Key (Optional)
@@ -137,26 +114,13 @@ To use a custom API key instead of the default API key, create `~/.binaryninja/c
 }
 ```
 
-Then update your MCP client config to use the same key in `BINJA_MCP_KEY`.
+Then use the same key in your client's `Authorization: Bearer ...` header. `Plugins > Code Mode
+MCP > Show API Key` prints the key the running server expects.
 
-### Logging Configuration (Optional)
+### Logging (Optional)
 
-Set `BINJA_MCP_LOG_LEVEL` environment variable to control logging output (stderr):
-
-```bash
-# Options: DEBUG, INFO (default), WARNING, ERROR, CRITICAL
-export BINJA_MCP_LOG_LEVEL=DEBUG
-```
-
-Or add to your MCP client config:
-
-```json
-"env": {
-  "BINJA_MCP_URL": "http://127.0.0.1:42069",
-  "BINJA_MCP_KEY": "binja-codemode-local",
-  "BINJA_MCP_LOG_LEVEL": "DEBUG"
-}
-```
+The server logs to Binary Ninja's own log window; there is no separate process to configure. Raise
+Binary Ninja's log level to see more.
 
 ## Usage
 
@@ -165,8 +129,8 @@ Or add to your MCP client config:
 3. In your MCP client (Claude, Zed, etc.), start prompting!
 
 Start the server before connecting the client. Clients ask for the tool list once, at startup, and
-that response is what carries the API reference; connecting first gets you a placeholder telling
-you to start the server.
+that response is what carries the API reference, so a client that connected first will not see the
+binary or the methods until it reconnects.
 
 ### Example Prompts
 
@@ -310,7 +274,8 @@ restricting the rest would buy nothing, so the plugin does not pretend otherwise
 What actually limits exposure:
 
 - The server binds to localhost (127.0.0.1) only
-- Every request needs the API key
+- Every request needs the API key, as an `Authorization: Bearer` header
+- Requests carrying a non-localhost `Origin` are refused, so a web page cannot reach it
 - Execution is capped at 30 seconds and output at ~6,000 tokens
 - Mutations are tracked, so a checkpoint can be rolled back
 

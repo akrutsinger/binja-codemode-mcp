@@ -1,12 +1,22 @@
-"""HTTP server for MCP bridge communication."""
+"""MCP over Streamable HTTP: the transport loop and JSON-RPC dispatch.
+
+Binary Ninja's API only exists inside Binary Ninja's own process, so the server has to run here.
+Clients speak MCP to it directly over HTTP; there is no separate bridge process translating stdio
+to a REST API of our own invention.
+
+The server is deliberately single-threaded. Executed code mutates the BinaryView, and serialising
+requests is what keeps two overlapping `execute` calls from racing on the database.
+"""
 
 import json
 import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from ..config import plugin_version
+from . import tools
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -15,139 +25,65 @@ if TYPE_CHECKING:
     from .state import StateTracker
     from .workspace import SkillsManager, WorkspaceManager
 
+SERVER_INFO = {"name": "binja-codemode-mcp", "version": plugin_version()}
 
-class MCPRequestHandler(BaseHTTPRequestHandler):
-    """HTTP handler for MCP bridge requests."""
+# Streamable HTTP arrived in 2025-03-26, so that is the oldest version reachable over this
+# transport and the one to fall back on when a client asks for something we do not know.
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26")
+DEFAULT_PROTOCOL_VERSION = "2025-03-26"
 
-    # These are set by MCPServer before starting
-    api: "BinjaAPI"
-    state: "StateTracker"
-    executor: "CodeExecutor"
-    workspace: "WorkspaceManager"
-    skills: "SkillsManager"
-    config: "Config"
-    get_tools: Callable[[], list[dict]]
+# JSON-RPC 2.0 error codes, per https://www.jsonrpc.org/specification#error_object
+# Adding these manually so the plugin does not take a dependency just for the constants.
+PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
+INTERNAL_ERROR = -32603
 
-    def log_message(self, format, *args):
-        """Suppress default HTTP logging."""
+_RESOURCES = [
+    {
+        "uri": "binja://api-reference",
+        "name": "Binary Ninja API Reference",
+        "description": (
+            "The same API documentation the execute tool already carries in its description. "
+            "Read it here only if that arrived truncated."
+        ),
+        "mimeType": "text/plain",
+    },
+    {
+        "uri": "binja://status",
+        "name": "Binary Status",
+        "description": (
+            "Current binary information: filename, architecture, platform, entry point, "
+            "function count, address range"
+        ),
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "binja://skills",
+        "name": "Available Skills",
+        "description": "Saved reusable analysis skills with descriptions.",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "binja://files",
+        "name": "Workspace Files",
+        "description": "Files in the current workspace, for carrying results between calls.",
+        "mimeType": "application/json",
+    },
+]
 
-    def _check_auth(self) -> bool:
-        """Verify API key."""
-        auth = self.headers.get("Authorization", "")
-        return auth == f"Bearer {self.config.api_key}"
 
-    def _send_json(self, data: dict, status: int = 200):
-        """Send JSON response."""
-        body = json.dumps(data).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+class JsonRpcError(Exception):
+    """A handler failure that maps onto a JSON-RPC error response."""
 
-    def _send_error(self, message: str, status: int = 400):
-        """Send error response."""
-        self._send_json({"error": message}, status)
-
-    def _read_json(self) -> dict | None:
-        """Read JSON body."""
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
-            return json.loads(body)
-        except (json.JSONDecodeError, ValueError):
-            return None
-
-    def do_GET(self):
-        """Handle GET requests."""
-        if not self._check_auth():
-            self._send_error("Unauthorized", 401)
-            return
-
-        if self.path == "/status":
-            self._send_json(
-                {
-                    "status": "running",
-                    "version": plugin_version(),
-                    "binary": self.api.get_binary_status(),
-                    "workspace_files": len(self.workspace.list()),
-                    "skills_count": len(self.skills.list()),
-                }
-            )
-        elif self.path == "/tools":
-            self._send_json({"tools": self.get_tools()})
-        elif self.path == "/checkpoints":
-            self._send_json({"checkpoints": self.state.list_checkpoints()})
-        elif self.path == "/skills":
-            self._send_json({"skills": self.skills.list()})
-        elif self.path == "/files":
-            self._send_json({"files": self.workspace.list()})
-        else:
-            self._send_error("Not found", 404)
-
-    def do_POST(self):
-        """Handle POST requests."""
-        if not self._check_auth():
-            self._send_error("Unauthorized", 401)
-            return
-
-        data = self._read_json()
-        if data is None:
-            self._send_error("Invalid JSON")
-            return
-
-        if self.path == "/execute":
-            code = data.get("code")
-            if not code:
-                self._send_error("Missing 'code' field")
-                return
-
-            result = self.executor.execute(code)
-            self._send_json(
-                {
-                    "success": result.success,
-                    "output": result.output,
-                    "error": result.error,
-                    "timed_out": result.timed_out,
-                }
-            )
-
-        elif self.path == "/checkpoint":
-            name = data.get("name")
-            if not name:
-                self._send_error("Missing 'name' field")
-                return
-
-            success = self.state.create_checkpoint(name)
-            self._send_json(
-                {
-                    "success": success,
-                    "message": f"Checkpoint '{name}' created"
-                    if success
-                    else "Checkpoint already exists",
-                }
-            )
-
-        elif self.path == "/rollback":
-            name = data.get("name")
-            if not name:
-                self._send_error("Missing 'name' field")
-                return
-
-            success = self.state.rollback(name)
-            self._send_json(
-                {
-                    "success": success,
-                    "message": f"Rolled back to '{name}'" if success else "Checkpoint not found",
-                }
-            )
-
-        else:
-            self._send_error("Not found", 404)
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
 
 
 class MCPServer:
-    """HTTP server for MCP bridge communication."""
+    """Serves MCP to any number of clients over Streamable HTTP."""
 
     def __init__(
         self,
@@ -168,29 +104,237 @@ class MCPServer:
         self.get_tools = get_tools
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._handlers = {
+            "initialize": self._initialize,
+            "tools/list": self._tools_list,
+            "tools/call": self._tools_call,
+            "resources/list": self._resources_list,
+            "resources/read": self._resources_read,
+            "ping": lambda params: {},
+        }
 
+    #
+    # Transport
+    #
     def start(self) -> str:
-        """Start server in background thread. Returns URL."""
-        # Configure handler
-        MCPRequestHandler.api = self.api
-        MCPRequestHandler.state = self.state
-        MCPRequestHandler.executor = self.executor
-        MCPRequestHandler.workspace = self.workspace
-        MCPRequestHandler.skills = self.skills
-        MCPRequestHandler.config = self.config
-        # staticmethod, or the attribute lookup binds it and passes the handler as an argument.
-        MCPRequestHandler.get_tools = staticmethod(self.get_tools)
-
-        self._server = HTTPServer((self.config.host, self.config.port), MCPRequestHandler)
-
+        """Start the server in a background thread. Returns the client-facing URL."""
+        self._server = _BoundHTTPServer((self.config.host, self.config.port), MCPRequestHandler)
+        self._server.mcp = self
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
-
-        return f"http://{self.config.host}:{self.config.port}"
+        return self.url
 
     def stop(self):
         """Stop the server."""
         if self._server:
             self._server.shutdown()
+            self._server.server_close()
             self._server = None
             self._thread = None
+
+    @property
+    def url(self) -> str:
+        return f"http://{self.config.host}:{self.config.port}/mcp"
+
+    def authorized(self, headers) -> bool:
+        return headers.get("Authorization", "") == f"Bearer {self.config.api_key}"
+
+    def same_origin(self, headers) -> bool:
+        """Reject cross-origin requests, so a page in a browser cannot reach the server.
+
+        A client that sends no Origin at all is not a browser, and every MCP client is in that
+        group; the header only shows up on the attack this guards against.
+        """
+        origin = headers.get("Origin")
+        if origin is None:
+            return True
+        return urlparse(origin).hostname in ("127.0.0.1", "localhost", "::1")
+
+    #
+    # JSON-RPC dispatch
+    #
+    def handle(self, payload: bytes) -> dict | None:
+        """Dispatch one JSON-RPC message. Returns the response, or None for a notification."""
+        try:
+            request = json.loads(payload)
+        except json.JSONDecodeError:
+            return _error(None, PARSE_ERROR, "Parse error")
+
+        if not isinstance(request, dict):
+            # Batching was removed in protocol 2025-06-18 and this server never supported it.
+            return _error(None, INVALID_REQUEST, "Request must be a JSON object")
+
+        method = request.get("method")
+        # A notification has no id and takes no response, per JSON-RPC.
+        if "id" not in request:
+            return None
+
+        req_id = request["id"]
+        handler = self._handlers.get(method)
+        if handler is None:
+            return _error(req_id, METHOD_NOT_FOUND, f"Method not found: {method}")
+
+        params = request.get("params")
+        if not isinstance(params, dict):
+            params = {}
+
+        try:
+            result = handler(params)
+        except JsonRpcError as exc:
+            return _error(req_id, exc.code, str(exc))
+        except Exception as exc:
+            # A bug in one handler must not take down the server.
+            return _error(req_id, INTERNAL_ERROR, f"Internal server error: {exc}")
+        return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+    #
+    # MCP methods
+    #
+    def _initialize(self, params):
+        requested = params.get("protocolVersion")
+        return {
+            "protocolVersion": (
+                requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
+            ),
+            "capabilities": {"tools": {"listChanged": False}, "resources": {}},
+            "serverInfo": SERVER_INFO,
+        }
+
+    def _tools_list(self, params):
+        return {"tools": self.get_tools()}
+
+    def _tools_call(self, params):
+        name = params.get("name")
+        arguments = params.get("arguments") or {}
+
+        if name == tools.TOOL_NAME:
+            return self._execute(arguments)
+        if name == "checkpoint":
+            return _text(self._checkpoint(arguments))
+        if name == "rollback":
+            return _text(self._rollback(arguments))
+        raise JsonRpcError(INVALID_PARAMS, f"Tool not found: {name}")
+
+    def _execute(self, arguments):
+        code = arguments.get("code") or ""
+        if not code.strip():
+            raise JsonRpcError(INVALID_PARAMS, "Argument 'code' is required")
+
+        result = self.executor.execute(code)
+        parts = []
+        if result.output:
+            parts.append(result.output)
+        if result.error:
+            parts.append(f"\nError: {result.error}")
+        if result.timed_out:
+            parts.append("\n(Execution timed out)")
+        # Execution failures ride back as tool results, not protocol errors, so the model sees the
+        # traceback and can retry.
+        return {
+            "content": [{"type": "text", "text": "".join(parts) if parts else "(no output)"}],
+            "isError": not result.success,
+        }
+
+    def _checkpoint(self, arguments):
+        name = arguments.get("name") or ""
+        if not name:
+            raise JsonRpcError(INVALID_PARAMS, "Argument 'name' is required")
+        if self.state.create_checkpoint(name):
+            return f"Checkpoint '{name}' created"
+        return f"Checkpoint '{name}' already exists"
+
+    def _rollback(self, arguments):
+        name = arguments.get("name") or ""
+        if not name:
+            raise JsonRpcError(INVALID_PARAMS, "Argument 'name' is required")
+        if self.state.rollback(name):
+            return f"Rolled back to '{name}'"
+        return f"No checkpoint named '{name}'"
+
+    def _resources_list(self, params):
+        return {"resources": _RESOURCES}
+
+    def _resources_read(self, params):
+        uri = params.get("uri", "")
+        readers = {
+            "binja://api-reference": lambda: "\n\n".join(
+                tool["description"] for tool in self.get_tools()
+            ),
+            "binja://status": lambda: json.dumps(self.api.get_binary_status(), indent=2),
+            "binja://skills": lambda: json.dumps(self.skills.list(), indent=2),
+            "binja://files": lambda: json.dumps(self.workspace.list(), indent=2),
+        }
+        reader = readers.get(uri)
+        if reader is None:
+            raise JsonRpcError(INVALID_PARAMS, f"No resource {uri!r}")
+        return {"contents": [{"uri": uri, "mimeType": "text/plain", "text": reader()}]}
+
+
+class _BoundHTTPServer(HTTPServer):
+    """An HTTPServer carrying the MCPServer, so handlers reach it without class-level globals."""
+
+    mcp: MCPServer
+
+
+class MCPRequestHandler(BaseHTTPRequestHandler):
+    """Speaks Streamable HTTP: one endpoint, POST only, JSON responses."""
+
+    server: _BoundHTTPServer
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, format, *args):
+        """Suppress the default stderr logging, which Binary Ninja has no console for."""
+
+    def do_POST(self):
+        mcp = self.server.mcp
+        if not mcp.same_origin(self.headers):
+            self._send_status(403, "Forbidden: cross-origin request")
+            return
+        if not mcp.authorized(self.headers):
+            self._send_status(401, "Unauthorized")
+            return
+        if urlparse(self.path).path not in ("/", "/mcp"):
+            self._send_status(404, "Not found: the MCP endpoint is /mcp")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            self._send_status(400, "Bad Content-Length")
+            return
+
+        response = mcp.handle(self.rfile.read(length))
+        if response is None:
+            # Nothing to answer a notification with, so acknowledge and close.
+            self._send_status(202, "")
+            return
+        self._send_json(response)
+
+    def do_GET(self):
+        # A GET opens a server-to-client SSE stream. Nothing here pushes messages, so decline it;
+        # the spec has clients fall back to plain request/response on 405.
+        self._send_status(405, "This server does not offer an SSE stream; POST to /mcp")
+
+    def _send_json(self, data: dict):
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_status(self, status: int, message: str):
+        body = message.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def _error(req_id, code, message):
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+def _text(message: str) -> dict:
+    return {"content": [{"type": "text", "text": message}]}
