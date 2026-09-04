@@ -22,11 +22,15 @@ ENVIRONMENT
 - Five names are already in scope: `binja` for analysing the binary, `workspace` for files that
   outlive a call, `skills` for saved code, `bv` for the raw BinaryView and `bn` for the
   binaryninja module. Do not import or construct them.
-- The methods above cover the common path and return plain JSON-friendly values. They are a
-  starting point, not the boundary: `bv` and `bn` are the full Binary Ninja API and reaching for
-  them is expected, not a fallback. binja.search_api(query) finds a member and
-  binja.describe(name) gives its real signature and docstring, read from the Binary Ninja that is
-  actually running. Do not guess at API names; look them up, then call them.
+- The methods above are deliberately few. They are the things that are awkward to render, easy
+  to get wrong, or impossible from inside one call - not a wrapper around Binary Ninja. `bv` and
+  `bn` are the full API, and writing Python against them is the normal way to work here, not a
+  fallback: to list functions, iterate `bv.functions`; to find bytes, call `bv.find_next_data`;
+  to read strings, read `bv.strings`.
+- binja.search_api(query) finds a member and binja.describe(name) gives its real signature and
+  docstring, read from the Binary Ninja that is actually running. describe() takes a class name
+  too, so a constructor's arguments and an enum's members are each one call away. Do not guess
+  at API names; look them up, then call them.
 - This is ordinary CPython inside Binary Ninja, so the whole standard library is importable.
 - Both what you print() and the value of the last expression come back, so a trailing bare
   expression needs no print().
@@ -42,9 +46,11 @@ USING THE API
   and binja.decompile(0x401000) are the same call.
 - Addresses are ints. Write them as hex literals.
 - Many methods return None when a function or address does not resolve. Check before using.
-- The methods above are a convenience layer over the common path, not the boundary. For anything
-  else, binja.function(name_or_addr) hands back the real Function object and `bv` reaches the
-  rest: assign to its attributes directly, as in binja.function("main").name = "parse_header".
+- binja.function(name_or_addr) hands back the real Function object, and `bv` reaches the rest:
+  assign to its attributes directly, as in binja.function("main").name = "parse_header".
+- Patching is Binary Ninja's own API. bv.write(addr, data) writes bytes, bv.convert_to_nop(addr)
+  NOPs one instruction correctly for the architecture, and bv.arch.assemble(asm, addr) returns
+  the bytes to write. Read bv.read(addr, n) first if you want to be able to put it back.
 - binja.checkpoint(name) before a batch of renames, retypes or patches, and binja.rollback(name)
   to undo the whole batch as a unit. Rollback covers changes made through `bv` too. Checkpoints
   are for spanning calls, which is the one thing a `with` block cannot do.
@@ -55,30 +61,28 @@ USING THE API
 
 _EXAMPLE = """
 EXAMPLE
-# Get your bearings before analysing anything.
-print(binja.get_binary_status())
-
-# Narrow server-side with the method's own filters rather than listing everything and filtering
-# in Python.
-for f in binja.list_functions(name_contains="auth", min_size=64):
-    print(hex(f["address"]), f["name"], f["size"])
+# The header above already names the binary, so start from the functions. Filter in Python;
+# there is no round trip to save by asking for a narrower list.
+for f in bv.functions:
+    if "auth" in f.name.lower() and f.total_bytes > 64:
+        print(hex(f.start), f.name, f.total_bytes)
 
 # Read the code, then act on what it says.
 print(binja.decompile("check_license"))
 
-# The methods are a starting point. binja.function() hands back the real Function object, and
-# assigning to it is a normal mutation that a checkpoint can roll back.
+# binja.function() hands back the real Function object, and assigning to it is a normal
+# mutation that a checkpoint can roll back.
 f = binja.function("check_license")
 print(f.name, len(f.basic_blocks), f.total_bytes)
 f.name = "verify_license"
 
-# For anything with no method, look it up rather than guessing, then call it on `bv`.
-print(binja.search_api("symbols of type"))
-for sym in bv.get_symbols_of_type(bn.SymbolType.ImportedFunctionSymbol)[:5]:
+# Look names up rather than guessing. A wrong enum member is a silent empty result.
+print(binja.describe("SymbolType")["members"])
+for sym in bv.get_symbols_of_type(bn.SymbolType.ImportAddressSymbol)[:5]:
     print(sym.name, hex(sym.address))
 
 # The last expression comes back on its own; no print needed.
-[m["function"] for m in binja.search_decompiled("strcpy")]
+[line for f in bv.functions if f.hlil for line in str(f.hlil).splitlines() if "strcpy" in line]
 """
 
 _INPUT_SCHEMA = {
@@ -129,15 +133,16 @@ def build_context_header(namespaces):
     if inspect.isclass(binja):
         return ""
 
-    status = binja.get_binary_status()
+    bv = binja.bv
     skills = namespaces["skills"].list()
     checkpoints = binja.list_checkpoints()
     lines = [
-        f"Binary: {status['filename']}",
+        f"Binary: {bv.file.filename}",
         (
-            f"Arch: {status['architecture']} | Platform: {status['platform']} | "
-            f"Functions: {status['function_count']} | "
-            f"Range: {status['start']:#x}-{status['end']:#x}"
+            f"Arch: {bv.arch.name if bv.arch else None} | "
+            f"Platform: {bv.platform.name if bv.platform else None} | "
+            f"Functions: {len(bv.functions)} | "
+            f"Range: {bv.start:#x}-{bv.end:#x}"
         ),
         (
             f"Workspace: {len(namespaces['workspace'].list())} file(s) | "

@@ -87,6 +87,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- A further 14 of `BinjaAPI`'s 26 methods, taking the tool description from ~2,300 tokens to
+  ~1,742 and leaving 12. The criterion narrows: "filters server-side" was never true here, because
+  the code runs in Binary Ninja's own process and a comprehension over `bv` costs no round trip.
+  What is left is what only a wrapper can do - state that outlives a call, introspection of the
+  running API, and a few idioms that are easy to get wrong. What went:
+  - Comprehensions over `bv` the model writes as readily as it calls: `list_functions`,
+    `list_strings`, `get_basic_blocks`, `get_binary_status`, `find_bytes`, `search_decompiled`,
+    `get_control_flow_graph`, `find_xref_chains`. Each was verified against the obvious one-liner
+    and returned identical results
+  - `analyze_functions_batch`, which paginated a list already in memory. Pagination pays for a
+    round trip, and there is no round trip to pay for
+  - `get_function_calls`, which was wrong: it matched any HLIL instruction having a `dest` with a
+    `constant`, so `HLIL_JUMP` counted as a call. It disagreed with `f.callees` on 38 of the 96
+    functions in the test binary and invented `sub_<addr>` names for targets that were not
+    functions
+  - `nop_range`, which hand-rolled a NOP byte per architecture: `0x90` for x86 and `0x00` for
+    ARM and for everything else, which is not a NOP anywhere. Binary Ninja's own
+    `bv.convert_to_nop()` is instruction-aware and correct, and `search_api("nop")` finds it
+  - `assemble_at`, which never worked. It read `arch.assemble()` as returning `(bytes, error)`
+    when it returns `bytes`, so the tuple unpack consumed the instruction itself: a two-byte
+    instruction bound `assembled_bytes` to an int, and any other length raised on the unpack
+  - `patch_bytes` and `retype_variable`, thin enough over `bv.write()` and `var.type` to be worth
+    less than the space they took in every tool description
+
 - 28 of `BinjaAPI`'s 61 methods, taking the tool description from ~2,833 tokens to ~2,222. Binary
   Ninja is already a Python API, so a wrapper only earns its place where it encodes an idiom that
   is hard to guess (`decompile()` knows about `f.hlil.root.lines`), renders something awkward as
