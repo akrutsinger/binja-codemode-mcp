@@ -270,8 +270,8 @@ def main():
                 logger.info("Binary Ninja server is reachable")
         except Exception as health_error:
             logger.warning("Binary Ninja server health check failed: %s", health_error)
-    except Exception as e:
-        logger.error("Failed to load config: %s", e, exc_info=True)
+    except Exception:
+        logger.exception("Failed to load config")
 
     handlers = {
         "initialize": handle_initialize,
@@ -313,7 +313,7 @@ def main():
                     }
                 )
         except Exception as e:
-            logger.error("Error processing message: %s", e, exc_info=True)
+            logger.exception("Error processing message")
             # Try to send error response if we have a message ID
             if msg and msg.get("id"):
                 try:

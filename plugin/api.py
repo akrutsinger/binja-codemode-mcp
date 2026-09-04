@@ -614,28 +614,28 @@ class BinjaAPI:
         if f.hlil:
             for block in f.hlil:
                 for instr in block:
-                    if hasattr(instr, "dest"):
-                        # Handle direct calls
-                        if hasattr(instr.dest, "constant"):
-                            target_addr = instr.dest.constant
-                            if target_addr not in seen:
-                                seen.add(target_addr)
-                                target_funcs = self._bv.get_functions_containing(target_addr)
-                                if target_funcs:
-                                    results.append(
-                                        {
-                                            "to_function": target_funcs[0].name,
-                                            "to_address": target_addr,
-                                        }
-                                    )
-                                else:
-                                    # Unresolved call - still report it
-                                    results.append(
-                                        {
-                                            "to_function": f"sub_{target_addr:x}",
-                                            "to_address": target_addr,
-                                        }
-                                    )
+                    # A direct call has a constant destination; an indirect one has no
+                    # address to report.
+                    if hasattr(instr, "dest") and hasattr(instr.dest, "constant"):
+                        target_addr = instr.dest.constant
+                        if target_addr not in seen:
+                            seen.add(target_addr)
+                            target_funcs = self._bv.get_functions_containing(target_addr)
+                            if target_funcs:
+                                results.append(
+                                    {
+                                        "to_function": target_funcs[0].name,
+                                        "to_address": target_addr,
+                                    }
+                                )
+                            else:
+                                # Unresolved call - still report it
+                                results.append(
+                                    {
+                                        "to_function": f"sub_{target_addr:x}",
+                                        "to_address": target_addr,
+                                    }
+                                )
 
         return results
 

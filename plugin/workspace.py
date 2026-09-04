@@ -16,9 +16,7 @@ def _validate_name(name: str) -> bool:
         return False
     if not _VALID_FILENAME.match(name):
         return False
-    if ".." in name or name.startswith("/") or name.startswith("\\"):
-        return False
-    return True
+    return ".." not in name and not name.startswith(("/", "\\"))
 
 
 @dataclass

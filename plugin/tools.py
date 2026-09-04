@@ -148,9 +148,11 @@ def build_context_header(surface, state_summary=""):
     skills = surface["list_skills"]()
     lines = [
         f"Binary: {status['filename']}",
-        f"Arch: {status['architecture']} | Platform: {status['platform']} | "
-        f"Functions: {status['function_count']} | "
-        f"Range: {status['start']:#x}-{status['end']:#x}",
+        (
+            f"Arch: {status['architecture']} | Platform: {status['platform']} | "
+            f"Functions: {status['function_count']} | "
+            f"Range: {status['start']:#x}-{status['end']:#x}"
+        ),
         f"Workspace: {len(surface['list_files']())} file(s) | Skills: {len(skills)} available",
     ]
     if skills:
