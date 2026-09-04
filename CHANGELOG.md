@@ -72,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Checkpoint and rollback never worked. `StateTracker` read the undo stack through
+  `bv.undoable_actions()`, which is not a `BinaryView` method; `create_checkpoint()` swallowed the
+  `AttributeError` and recorded a depth of 0 while reporting success, and `rollback()` swallowed
+  the same error and reported "checkpoint not found". Both now read `bv.file.undo_entries`, and
+  neither hides a failure to do so. Binary Ninja commits every API mutation as its own undo entry,
+  so a rollback reverts changes made through `bv` directly as well as those made through `binja`
 - `set_function_signature()` now correctly validates parsed types with explicit None check
 - `find_bytes()` and `list_strings()` now default their optional arguments, matching how they have
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
