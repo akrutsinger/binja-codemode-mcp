@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from binaryninja import BinaryView
 
-    from .state import StateTracker
     from .workspace import SkillsManager, WorkspaceManager
 
 
@@ -23,14 +22,16 @@ class BinjaAPI:
     def __init__(
         self,
         bv: "BinaryView",
-        state: "StateTracker",
         workspace: "WorkspaceManager",
         skills: "SkillsManager",
     ):
         self._bv = bv
-        self._state = state
         self._workspace = workspace
         self._skills = skills
+        # name -> how many committed transactions deep the database was. Deliberately in memory
+        # only: the undo stack outlives the session in the .bndb, so a depth saved to disk could
+        # be meaningfully wrong on reload, while one held here can only be from this session.
+        self._checkpoints: dict[str, int] = {}
 
     # =========================================================================
     # Query Operations (read-only)
@@ -1179,13 +1180,17 @@ class BinjaAPI:
     def checkpoint(self, name: str) -> bool:
         """Name the current state of the database so a later rollback can return to it.
 
-        Take one before any batch of renames, retypes or patches. Changes made through `bv`
-        directly are covered too, so this is not limited to the methods above.
+        Covers changes made through `bv` directly as well as through these methods, because
+        Binary Ninja commits every mutation as its own undo entry. For atomicity inside a single
+        call, `with bv.undoable_transaction():` is cheaper and reverts itself on an exception.
 
         Returns:
             True, or False if a checkpoint of that name already exists
         """
-        return self._state.create_checkpoint(name)
+        if name in self._checkpoints:
+            return False
+        self._checkpoints[name] = self._undo_depth()
+        return True
 
     def rollback(self, name: str) -> bool:
         """Undo every change made since the named checkpoint, discarding later checkpoints.
@@ -1193,15 +1198,33 @@ class BinjaAPI:
         Returns:
             True, or False if no checkpoint of that name exists
         """
-        return self._state.rollback(name)
+        if name not in self._checkpoints:
+            return False
+
+        # Undo back down to the recorded depth rather than a counted number of actions, so a redo
+        # or a change made in the GUI cannot leave the two out of step. A depth below the current
+        # one yields an empty range, which is what keeps a stale checkpoint from undoing work that
+        # predates it.
+        for _ in range(self._undo_depth() - self._checkpoints[name]):
+            self._bv.undo()
+
+        taken_at = self._checkpoints[name]
+        self._checkpoints = {
+            key: depth for key, depth in self._checkpoints.items() if depth <= taken_at
+        }
+        return True
 
     def list_checkpoints(self) -> list[dict]:
         """List saved checkpoints, oldest first.
 
         Returns:
-            [{name, timestamp}, ...]
+            [{name, undo_depth}, ...]
         """
-        return self._state.list_checkpoints()
+        return [{"name": name, "undo_depth": depth} for name, depth in self._checkpoints.items()]
+
+    def _undo_depth(self) -> int:
+        """How many committed transactions deep the database currently is."""
+        return len(self._bv.file.undo_entries)
 
     # =========================================================================
     # Workspace Operations

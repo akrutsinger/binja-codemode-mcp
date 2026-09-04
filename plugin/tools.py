@@ -43,7 +43,11 @@ USING THE API
 - Prefer the batch methods over a Python loop that calls a single-item method N times:
   analyze_functions_batch(), bulk_rename() and batch_set_types() each cost one pass.
 - binja.checkpoint(name) before a batch of renames, retypes or patches, and binja.rollback(name)
-  to undo the whole batch as a unit. Rollback covers changes made through `bv` too.
+  to undo the whole batch as a unit. Rollback covers changes made through `bv` too. Checkpoints
+  are for spanning calls, which is the one thing a `with` block cannot do.
+- For atomicity inside a single call, `with bv.undoable_transaction():` groups everything in the
+  block into one undo entry and reverts all of it if an exception escapes. Prefer it for a risky
+  batch. The rest of the undo API is Binary Ninja's own: search_api("undo") lists it.
 """
 
 _EXAMPLE = """
@@ -83,19 +87,19 @@ _COMMENT = re.compile(r"^    # (.+)$")
 _METHOD_DEF = re.compile(r"^    def (\w+)\(")
 
 
-def build_tool_definition(surface, state_summary=""):
+def build_tool_definition(surface):
     """Build the tools/list entry describing every method the LLM can call."""
     return {
         "name": TOOL_NAME,
         "description": (
-            f"{build_context_header(surface, state_summary)}"
+            f"{build_context_header(surface)}"
             f"{_HEADER}{build_api_reference(surface)}\n{_GUIDE}{_EXAMPLE}"
         ),
         "inputSchema": _INPUT_SCHEMA,
     }
 
 
-def build_context_header(surface, state_summary=""):
+def build_context_header(surface):
     """Describe the binary and session the code will run against.
 
     Empty for an unbound surface, so the docs tooling can render the reference without a
@@ -106,6 +110,7 @@ def build_context_header(surface, state_summary=""):
 
     status = surface["get_binary_status"]()
     skills = surface["list_skills"]()
+    checkpoints = surface["list_checkpoints"]()
     lines = [
         f"Binary: {status['filename']}",
         (
@@ -117,8 +122,8 @@ def build_context_header(surface, state_summary=""):
     ]
     if skills:
         lines.append("Saved skills: " + ", ".join(skill["name"] for skill in skills))
-    if state_summary:
-        lines.append(state_summary)
+    if checkpoints:
+        lines.append("Checkpoints: " + ", ".join(cp["name"] for cp in checkpoints))
     return "\n".join(lines) + "\n\n"
 
 

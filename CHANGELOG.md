@@ -36,7 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `binja.checkpoint(name)`, `binja.rollback(name)` and `binja.list_checkpoints()` - checkpointing
-  from inside executed code, so a script can take one before mutating and roll itself back
+  from inside executed code, so a script can take one before mutating and roll itself back.
+  Checkpoints exist for the one thing Binary Ninja's own undo API cannot express: spanning several
+  `execute` calls, which a `with` block cannot do
+- The tool description now points at `bv.undoable_transaction()` for atomicity inside a single
+  call, and says the rest of the undo API is reachable through `search_api("undo")`. Wrapping
+  every `execute` in a transaction was considered and rejected: it would discard the work of a
+  long analysis that happened to raise at the end, so the model opts in instead
 - `scripts/generate_docs.py` rewrites the README's API section from `plugin/api.py`, and
   `scripts/check_api.py` fails when a public method lacks a docstring summary or a documented
   return shape, or (with `--check`) when that README section is stale. Both run under Binary
@@ -68,10 +74,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the fourth restated the `execute` tool description that `binja.list_methods()` re-emits from
   inside the namespace. Most clients never read resources, and three ways to ask one question is
   two too many
-- `StateTracker.record_change()` and the `pending_changes` list it fed. Twelve mutation methods
-  appended a description apiece to produce one line of the tool description's header, and the
-  count was wrong by construction: mutations made through `bv` directly never called it. The
-  header now counts the undo stack, which sees every change however it was made
+- `plugin/state.py` entirely, along with the `enable_state_tracking` config option and the
+  `state_summary` parameter threaded through the tool description. Ninety lines of `StateTracker`,
+  a `Checkpoint` dataclass and a `record_change()` call in twelve mutation methods have become a
+  `dict[str, int]` on `BinjaAPI` and three methods of a few lines each. Binary Ninja's own undo
+  system was doing the work already; the tracker was a second set of books that could only ever
+  disagree with it, and did: mutations made through `bv` directly never called `record_change()`,
+  so the "N change(s)" line it produced undercounted by design. That line is gone, and the header
+  lists checkpoint names the same way it already lists skills
 - `bridge/mcp_bridge.py`, and with it `BINJA_MCP_URL`, `BINJA_MCP_KEY` and `BINJA_MCP_LOG_LEVEL`.
   The bridge existed to translate stdio to HTTP because MCP had no HTTP transport when the plugin
   was written; it has had one since protocol 2025-03-26. Clients that still speak only stdio can
@@ -90,9 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Checkpoint and rollback never worked. `StateTracker` read the undo stack through
   `bv.undoable_actions()`, which is not a `BinaryView` method; `create_checkpoint()` swallowed the
   `AttributeError` and recorded a depth of 0 while reporting success, and `rollback()` swallowed
-  the same error and reported "checkpoint not found". Both now read `bv.file.undo_entries`, and
-  neither hides a failure to do so. Binary Ninja commits every API mutation as its own undo entry,
-  so a rollback reverts changes made through `bv` directly as well as those made through `binja`
+  the same error and reported "checkpoint not found". Checkpoints now record the depth of
+  `bv.file.undo_entries`, and nothing hides a failure to read it. Binary Ninja commits every API
+  mutation as its own undo entry, so a rollback reverts changes made through `bv` directly as well
+  as those made through `binja`. A checkpoint recorded deeper than the current stack rolls back to
+  nothing rather than undoing work that predates it
 - `set_function_signature()` now correctly validates parsed types with explicit None check
 - `find_bytes()` and `list_strings()` now default their optional arguments, matching how they have
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`

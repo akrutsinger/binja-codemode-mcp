@@ -31,12 +31,10 @@ class BinjaCodeModeMCP:
         from .api import BinjaAPI
         from .executor import CodeExecutor
         from .server import MCPServer
-        from .state import StateTracker
         from .workspace import SkillsManager, WorkspaceManager
 
         self._components = {
             "BinjaAPI": BinjaAPI,
-            "StateTracker": StateTracker,
             "CodeExecutor": CodeExecutor,
             "WorkspaceManager": WorkspaceManager,
             "SkillsManager": SkillsManager,
@@ -64,10 +62,9 @@ class BinjaCodeModeMCP:
             self._config.ensure_dirs()
 
             # Initialize components
-            state = components["StateTracker"](bv, self._config.enable_state_tracking)
             workspace = components["WorkspaceManager"](self._config.workspace_dir)
             skills = components["SkillsManager"](self._config.skills_dir)
-            api = components["BinjaAPI"](bv, state, workspace, skills)
+            api = components["BinjaAPI"](bv, workspace, skills)
             executor = components["CodeExecutor"](
                 api,
                 bv,
@@ -77,7 +74,7 @@ class BinjaCodeModeMCP:
 
             def get_tools():
                 surface = components["tools"].api_surface(api)
-                return [components["tools"].build_tool_definition(surface, state.get_summary())]
+                return [components["tools"].build_tool_definition(surface)]
 
             self._server = components["MCPServer"](executor, self._config, get_tools)
             url = self._server.start()

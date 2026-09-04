@@ -69,7 +69,6 @@ class Config:
     api_key: str = field(default="")
 
     # Execution settings
-    enable_state_tracking: bool = True
     max_output_tokens: int = 6_000
     execution_timeout_s: float = 30.0  # seconds
 
