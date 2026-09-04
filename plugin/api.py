@@ -298,9 +298,6 @@ class BinjaAPI:
         Args:
             func: Function name or address
             il_level: IL level - "hlil" (high), "mlil" (medium), or "llil" (low)
-
-        Returns:
-            Decompiled code or None if function not found
         """
         # Validate il_level parameter
         valid_levels = ["hlil", "mlil", "llil"]
@@ -520,9 +517,6 @@ class BinjaAPI:
 
         Args:
             addr: Address as integer or hex string (e.g., 0x1000 or "0x1000")
-
-        Returns:
-            Function name or None if not found
         """
         if isinstance(addr, str):
             try:
@@ -547,14 +541,6 @@ class BinjaAPI:
 
         Args:
             name: Type name to look up
-
-        Returns:
-            Type definition string or None if not found
-
-        Note:
-            This only returns user-defined types. Built-in C types like
-            'int', 'char', 'void' will return None. Use define_type() to
-            create custom types first.
         """
         t = self._bv.get_type_by_name(name)
         return str(t) if t else None
@@ -692,16 +678,13 @@ class BinjaAPI:
         end: int | None = None,
         limit: int = 100,
     ) -> list[int]:
-        """Search for byte pattern in binary. Returns list of addresses.
+        """Search for byte pattern in binary.
 
         Args:
             pattern: Byte sequence to search for
             start: Start address (default: binary start)
             end: End address (default: binary end)
             limit: Maximum results to return (default: 100)
-
-        Returns:
-            List of addresses where pattern was found (max 100 results)
         """
         if start is None:
             start = self._bv.start
@@ -1066,9 +1049,6 @@ class BinjaAPI:
         Args:
             func: Function name or address
             signature: Function signature string (e.g., "int foo(char* bar)")
-
-        Returns:
-            True if signature was set successfully, False otherwise
         """
         f = self._resolve_function(func)
         if not f:
@@ -1426,3 +1406,13 @@ class BinjaAPI:
             "callees_count": len(f.callees),
             "instruction_count": sum(len(block) for block in f.basic_blocks),
         }
+
+    # =========================================================================
+    # Discovery
+    # =========================================================================
+
+    def list_methods(self) -> str:
+        """List every method callable here, with signatures and summaries."""
+        from . import tools
+
+        return tools.build_api_reference(tools.api_surface(self))

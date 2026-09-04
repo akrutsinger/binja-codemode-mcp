@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The API reference the LLM reads is now generated from `BinjaAPI` by introspection and delivered
+  in the `execute` tool description, where it is always in context. Previously it was hand-written
+  in `stubs.py` and offered as an MCP resource that most clients never read. Adding a method to
+  `BinjaAPI` now advertises it automatically, and signatures cannot drift from the code
+
 ### Added
+
+- `list_methods()` - Re-emit the API reference from inside the execution namespace, for when the
+  tool description reaches the model truncated
 
 - `search_decompiled()` - Search for patterns in HLIL decompiled code with regex support
 - `get_control_flow_graph()` - Export CFG structure with nodes and edges for graph analysis
@@ -26,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
 - `get_all_xrefs()` documented its result keys as `to`/`from`; they are `xrefs_to`/`xrefs_from`
 - `analyze_functions_batch()` returns a `next_offset` key that was undocumented
+- The status widget's headless guard caught only `ImportError`, but `binaryninjaui` raises
+  `UIPluginInHeadlessError`, so importing the plugin outside the GUI crashed
 
 ## [0.1.3] - 2026-01-08
 

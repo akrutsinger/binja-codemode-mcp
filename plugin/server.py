@@ -23,7 +23,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
     workspace: "WorkspaceManager"
     skills: "SkillsManager"
     config: "Config"
-    get_stubs: Callable[[], str]
+    get_tools: Callable[[], list[dict]]
 
     def log_message(self, format, *args):
         """Suppress default HTTP logging."""
@@ -71,8 +71,8 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
                     "skills_count": len(self.skills.list()),
                 }
             )
-        elif self.path == "/stubs":
-            self._send_json({"stubs": self.get_stubs()})
+        elif self.path == "/tools":
+            self._send_json({"tools": self.get_tools()})
         elif self.path == "/checkpoints":
             self._send_json({"checkpoints": self.state.list_checkpoints()})
         elif self.path == "/skills":
@@ -156,7 +156,7 @@ class MCPServer:
         workspace: "WorkspaceManager",
         skills: "SkillsManager",
         config: "Config",
-        get_stubs: Callable[[], str],
+        get_tools: Callable[[], list[dict]],
     ):
         self.api = api
         self.state = state
@@ -164,7 +164,7 @@ class MCPServer:
         self.workspace = workspace
         self.skills = skills
         self.config = config
-        self.get_stubs = get_stubs
+        self.get_tools = get_tools
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -177,7 +177,7 @@ class MCPServer:
         MCPRequestHandler.workspace = self.workspace
         MCPRequestHandler.skills = self.skills
         MCPRequestHandler.config = self.config
-        MCPRequestHandler.get_stubs = self.get_stubs
+        MCPRequestHandler.get_tools = self.get_tools
 
         self._server = HTTPServer(
             (self.config.host, self.config.port), MCPRequestHandler

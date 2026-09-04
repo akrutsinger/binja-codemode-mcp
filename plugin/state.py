@@ -74,24 +74,20 @@ class StateTracker:
     def get_summary(self) -> str:
         """Generate context summary for LLM."""
         if not self._enabled:
-            return "# State tracking: disabled"
-
-        lines = ["# Session state:"]
+            return "State tracking: disabled"
 
         if self.checkpoints:
             latest = self.checkpoints[-1]
             age = int(time() - latest.timestamp)
             age_str = f"{age}s ago" if age < 60 else f"{age // 60}m ago"
-            lines.append(f'#   Checkpoint: "{latest.name}" ({age_str})')
+            parts = [f'Latest checkpoint: "{latest.name}" ({age_str})']
         else:
-            lines.append("#   Checkpoint: none")
+            parts = ["Latest checkpoint: none, so nothing can be rolled back yet"]
 
         if self.pending_changes:
-            lines.append(f"#   Pending changes: {len(self.pending_changes)}")
+            parts.append(f"{len(self.pending_changes)} change(s) since it")
 
-        lines.append(f"#   Rollback available: {'yes' if self.checkpoints else 'no'}")
-
-        return "\n".join(lines)
+        return "Session: " + " | ".join(parts)
 
     def list_checkpoints(self) -> list[dict]:
         """List all checkpoints."""

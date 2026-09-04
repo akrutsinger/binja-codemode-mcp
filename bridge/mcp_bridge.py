@@ -207,24 +207,23 @@ def handle_read_resource(params: dict) -> dict:
     uri = params.get("uri", "")
 
     endpoints = {
-        "binja://api-reference": ("GET", "/stubs", "stubs"),
-        "binja://status": ("GET", "/status", None),
-        "binja://skills": ("GET", "/skills", None),
-        "binja://files": ("GET", "/files", None),
+        "binja://api-reference": "/tools",
+        "binja://status": "/status",
+        "binja://skills": "/skills",
+        "binja://files": "/files",
     }
 
-    if uri in endpoints:
-        method, path, key = endpoints[uri]
-        resp = make_request(method, path)
-        if "error" in resp:
-            text = f"Error: {resp['error']}"
-        elif key:
-            text = resp.get(key, "")
-        else:
-            text = json.dumps(resp, indent=2)
-        return {"contents": [{"uri": uri, "text": text}]}
+    if uri not in endpoints:
+        return {"contents": [{"uri": uri, "text": "Resource not found"}]}
 
-    return {"contents": [{"uri": uri, "text": "Resource not found"}]}
+    resp = make_request("GET", endpoints[uri])
+    if "error" in resp:
+        text = f"Error: {resp['error']}"
+    elif uri == "binja://api-reference":
+        text = "\n\n".join(tool["description"] for tool in resp.get("tools", []))
+    else:
+        text = json.dumps(resp, indent=2)
+    return {"contents": [{"uri": uri, "text": text}]}
 
 
 def handle_call_tool(params: dict) -> dict:

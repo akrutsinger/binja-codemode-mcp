@@ -26,8 +26,8 @@ class BinjaCodeModeMCP:
         if self._components is not None:
             return self._components
 
+        from . import tools
         from ..config import Config
-        from ..stubs import generate_api_stubs
         from .api import BinjaAPI
         from .executor import CodeExecutor
         from .server import MCPServer
@@ -42,7 +42,7 @@ class BinjaCodeModeMCP:
             "SkillsManager": SkillsManager,
             "MCPServer": MCPServer,
             "Config": Config,
-            "generate_api_stubs": generate_api_stubs,
+            "tools": tools,
         }
         return self._components
 
@@ -74,11 +74,15 @@ class BinjaCodeModeMCP:
                 timeout=self._config.execution_timeout_s,
             )
 
-            def get_stubs(self=None):
-                return components["generate_api_stubs"](bv, state, workspace, skills)
+            def get_tools(self=None):
+                surface = components["tools"].api_surface(api)
+                definition = components["tools"].build_tool_definition(
+                    surface, state.get_summary()
+                )
+                return [definition]
 
             self._server = components["MCPServer"](
-                api, state, executor, workspace, skills, self._config, get_stubs
+                api, state, executor, workspace, skills, self._config, get_tools
             )
             url = self._server.start()
 

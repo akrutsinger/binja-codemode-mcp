@@ -4,7 +4,7 @@ MCP Status Widget for Binary Ninja status bar.
 Provides a clickable status indicator showing MCP server state.
 """
 
-from binaryninja import execute_on_main_thread
+from binaryninja import UIPluginInHeadlessError, execute_on_main_thread
 from binaryninja.log import log_debug, log_error, log_info
 
 try:
@@ -13,7 +13,8 @@ try:
     from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
     _HAS_UI = True
-except ImportError:
+except (ImportError, UIPluginInHeadlessError):
+    # binaryninjaui raises UIPluginInHeadlessError, which is not an ImportError.
     _HAS_UI = False
 
 # Module-level state
@@ -175,7 +176,7 @@ def _do_timer_tick():
     _update_status_indicator()
 
 
-class MCPUINotification(UIContextNotification):
+class MCPUINotification(UIContextNotification if _HAS_UI else object):
     """UI notification handler for MCP status updates."""
 
     def OnContextOpen(self, context):
