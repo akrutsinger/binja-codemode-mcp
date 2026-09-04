@@ -159,6 +159,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The execution timeout stopped nothing. `thread.join(timeout=...)` returns when the wait
+  expires, not when the thread does, so a script that ran past the limit was reported as timed
+  out and then carried on running - still printing, still mutating the BinaryView, and now
+  overlapping every later call. That is exactly what the server's single-threaded design exists
+  to prevent, so the guarantee stated in `server.py` was not true. A timed-out thread is now
+  stopped through `sys.monitoring`, by arming line and jump events on the executed code objects
+  and nothing else, so the `KeyboardInterrupt` can only surface between statements the model
+  wrote. Events are armed only after a timeout, so ordinary execution carries no tracing cost,
+  and a runaway stops in about 10ms. On interpreters without `sys.monitoring` (Binary Ninja 4.0
+  predates it) the fallback raises asynchronously instead, which works but lands wherever the
+  thread happens to be - usually inside a Binary Ninja destructor, where Python discards the
+  exception and the C free it was part of never runs. A thread that will not stop either way is
+  remembered, and later requests are refused rather than run beside it until it finishes
+- A runaway execution thread could hold up Binary Ninja's own shutdown, because the interpreter
+  waits to join a non-daemon thread. The execution thread is now a daemon
 - `WorkspaceManager.list()` and `SkillsManager.list()` had annotations that could not be read. The
   method is named `list`, so under PEP 649's lazy evaluation the `list[dict]` return annotation
   resolved to the method itself and raised `TypeError`. Latent until something introspected those
