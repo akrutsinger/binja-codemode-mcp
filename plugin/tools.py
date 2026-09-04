@@ -42,8 +42,8 @@ USING THE API
 - Many methods return None when a function or address does not resolve. Check before using.
 - Prefer the batch methods over a Python loop that calls a single-item method N times:
   analyze_functions_batch(), bulk_rename() and batch_set_types() each cost one pass.
-- Mutations are tracked. Take a checkpoint before a batch of renames, retypes or patches so the
-  whole batch can be rolled back as a unit.
+- binja.checkpoint(name) before a batch of renames, retypes or patches, and binja.rollback(name)
+  to undo the whole batch as a unit. Rollback covers changes made through `bv` too.
 """
 
 _EXAMPLE = """
@@ -81,46 +81,6 @@ _INPUT_SCHEMA = {
 _SECTION_DIVIDER = re.compile(r"^    # =+$")
 _COMMENT = re.compile(r"^    # (.+)$")
 _METHOD_DEF = re.compile(r"^    def (\w+)\(")
-
-
-_CHECKPOINT_TOOL = {
-    "name": "checkpoint",
-    "description": (
-        "Name the current state of the database so a later rollback can return to it. Take one "
-        "before any batch of renames, retypes or patches."
-    ),
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Checkpoint name."},
-        },
-        "required": ["name"],
-    },
-}
-
-_ROLLBACK_TOOL = {
-    "name": "rollback",
-    "description": (
-        "Undo every change made since the named checkpoint, discarding any checkpoints taken "
-        "after it."
-    ),
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Checkpoint to return to."},
-        },
-        "required": ["name"],
-    },
-}
-
-
-def build_tool_definitions(surface, state_summary=""):
-    """Build every tools/list entry the server advertises."""
-    return [
-        build_tool_definition(surface, state_summary),
-        _CHECKPOINT_TOOL,
-        _ROLLBACK_TOOL,
-    ]
 
 
 def build_tool_definition(surface, state_summary=""):

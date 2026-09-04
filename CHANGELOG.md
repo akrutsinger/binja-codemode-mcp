@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- There is one MCP tool, `execute`. `checkpoint` and `rollback` were separate tools; they are now
+  `binja.checkpoint(name)` and `binja.rollback(name)`, callable from the code the model is already
+  writing, alongside a new `binja.list_checkpoints()`. A code-mode server that also ships bespoke
+  tools for individual operations is arguing with itself
 - The plugin now speaks MCP directly over Streamable HTTP at `http://127.0.0.1:42069/mcp`, so
   there is no bridge process. Clients register the URL and a bearer token instead of a path to a
   script, which means the configuration no longer depends on how the plugin was installed. The
@@ -31,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `binja.checkpoint(name)`, `binja.rollback(name)` and `binja.list_checkpoints()` - checkpointing
+  from inside executed code, so a script can take one before mutating and roll itself back
 - `scripts/generate_docs.py` rewrites the README's API section from `plugin/api.py`, and
   `scripts/check_api.py` fails when a public method lacks a docstring summary or a documented
   return shape, or (with `--check`) when that README section is stale. Both run under Binary
@@ -57,6 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The four MCP resources (`binja://api-reference`, `status`, `skills`, `files`). Three restated
+  what `binja.get_binary_status()`, `binja.list_skills()` and `binja.list_files()` already return,
+  and the fourth restated the `execute` tool description that `binja.list_methods()` re-emits from
+  inside the namespace. Most clients never read resources, and three ways to ask one question is
+  two too many
+- `StateTracker.record_change()` and the `pending_changes` list it fed. Twelve mutation methods
+  appended a description apiece to produce one line of the tool description's header, and the
+  count was wrong by construction: mutations made through `bv` directly never called it. The
+  header now counts the undo stack, which sees every change however it was made
 - `bridge/mcp_bridge.py`, and with it `BINJA_MCP_URL`, `BINJA_MCP_KEY` and `BINJA_MCP_LOG_LEVEL`.
   The bridge existed to translate stdio to HTTP because MCP had no HTTP transport when the plugin
   was written; it has had one since protocol 2025-03-26. Clients that still speak only stdio can

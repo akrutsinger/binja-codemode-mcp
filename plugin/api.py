@@ -840,9 +840,7 @@ class BinjaAPI:
         if not f:
             return False
 
-        old_name = f.name
         f.name = new_name
-        self._state.record_change(f"rename function: {old_name} -> {new_name}")
         return True
 
     def rename_data(self, addr: int, new_name: str) -> bool:
@@ -853,9 +851,7 @@ class BinjaAPI:
         if not sym:
             return False
 
-        old_name = sym.name
         self._bv.define_user_symbol(Symbol(sym.type, addr, new_name))
-        self._state.record_change(f"rename data: {old_name} -> {new_name}")
         return True
 
     def rename_variable(self, func: str | int, old_name: str, new_name: str) -> bool:
@@ -867,7 +863,6 @@ class BinjaAPI:
         for var in f.vars:
             if var.name == old_name:
                 var.name = new_name
-                self._state.record_change(f"rename var in {f.name}: {old_name} -> {new_name}")
                 return True
         return False
 
@@ -884,14 +879,12 @@ class BinjaAPI:
         for var in f.vars:
             if var.name == var_name:
                 var.type = parsed_type
-                self._state.record_change(f"retype var {var_name} in {f.name} to {new_type}")
                 return True
         return False
 
     def set_comment(self, addr: int, comment: str) -> bool:
         """Set comment at address."""
         self._bv.set_comment_at(addr, comment)
-        self._state.record_change(f"comment at {addr:#x}")
         return True
 
     def set_function_comment(self, func: str | int, comment: str) -> bool:
@@ -901,13 +894,11 @@ class BinjaAPI:
             return False
 
         f.comment = comment
-        self._state.record_change(f"comment on {f.name}")
         return True
 
     def delete_comment(self, addr: int) -> bool:
         """Delete comment at address."""
         self._bv.set_comment_at(addr, "")
-        self._state.record_change(f"delete comment at {addr:#x}")
         return True
 
     def delete_function_comment(self, func: str | int) -> bool:
@@ -917,7 +908,6 @@ class BinjaAPI:
             return False
 
         f.comment = ""
-        self._state.record_change(f"delete comment on {f.name}")
         return True
 
     def bulk_rename(self, mapping: dict[str, str], target_type: str = "function") -> dict:
@@ -1019,7 +1009,6 @@ class BinjaAPI:
             types = self._bv.parse_types_from_string(c_definition)
             for name, t in types.types.items():
                 self._bv.define_user_type(name, t)
-                self._state.record_change(f"define type: {name}")
             return True
         except Exception:
             return False
@@ -1042,7 +1031,6 @@ class BinjaAPI:
 
             if parsed_type is not None:
                 f.type = parsed_type
-                self._state.record_change(f"signature on {f.name}: {signature}")
                 return True
         except Exception:
             # If parsing fails entirely, fall through to False
@@ -1077,8 +1065,6 @@ class BinjaAPI:
                     "error": f"Partial write: {wrote}/{len(data)} bytes",
                     "address": addr,
                 }
-
-            self._state.record_change(f"patch {len(data)} bytes at {addr:#x}: {data.hex()}")
 
             return {
                 "success": True,
@@ -1185,6 +1171,37 @@ class BinjaAPI:
                 "address": addr,
                 "assembly": asm,
             }
+
+    # =========================================================================
+    # Checkpoints
+    # =========================================================================
+
+    def checkpoint(self, name: str) -> bool:
+        """Name the current state of the database so a later rollback can return to it.
+
+        Take one before any batch of renames, retypes or patches. Changes made through `bv`
+        directly are covered too, so this is not limited to the methods above.
+
+        Returns:
+            True, or False if a checkpoint of that name already exists
+        """
+        return self._state.create_checkpoint(name)
+
+    def rollback(self, name: str) -> bool:
+        """Undo every change made since the named checkpoint, discarding later checkpoints.
+
+        Returns:
+            True, or False if no checkpoint of that name exists
+        """
+        return self._state.rollback(name)
+
+    def list_checkpoints(self) -> list[dict]:
+        """List saved checkpoints, oldest first.
+
+        Returns:
+            [{name, timestamp}, ...]
+        """
+        return self._state.list_checkpoints()
 
     # =========================================================================
     # Workspace Operations

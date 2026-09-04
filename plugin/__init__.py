@@ -77,11 +77,9 @@ class BinjaCodeModeMCP:
 
             def get_tools():
                 surface = components["tools"].api_surface(api)
-                return components["tools"].build_tool_definitions(surface, state.get_summary())
+                return [components["tools"].build_tool_definition(surface, state.get_summary())]
 
-            self._server = components["MCPServer"](
-                api, state, executor, workspace, skills, self._config, get_tools
-            )
+            self._server = components["MCPServer"](executor, self._config, get_tools)
             url = self._server.start()
 
             log_info("=" * 42)

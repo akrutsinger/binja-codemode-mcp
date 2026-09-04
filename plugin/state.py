@@ -24,12 +24,6 @@ class StateTracker:
         self._bv = bv
         self._enabled = enabled
         self.checkpoints: list[Checkpoint] = []
-        self.pending_changes: list[str] = []
-
-    def record_change(self, description: str) -> None:
-        """Record a mutation for tracking."""
-        if self._enabled:
-            self.pending_changes.append(description)
 
     def _undo_depth(self) -> int:
         """How many committed transactions deep the database currently is.
@@ -48,7 +42,6 @@ class StateTracker:
         self.checkpoints.append(
             Checkpoint(name=name, timestamp=time(), undo_depth=self._undo_depth())
         )
-        self.pending_changes.clear()
         return True
 
     def rollback(self, name: str) -> bool:
@@ -64,7 +57,6 @@ class StateTracker:
 
         # Remove checkpoints created after this one
         self.checkpoints = [cp for cp in self.checkpoints if cp.timestamp <= checkpoint.timestamp]
-        self.pending_changes.clear()
         return True
 
     def get_summary(self) -> str:
@@ -72,16 +64,19 @@ class StateTracker:
         if not self._enabled:
             return "State tracking: disabled"
 
-        if self.checkpoints:
-            latest = self.checkpoints[-1]
-            age = int(time() - latest.timestamp)
-            age_str = f"{age}s ago" if age < 60 else f"{age // 60}m ago"
-            parts = [f'Latest checkpoint: "{latest.name}" ({age_str})']
-        else:
-            parts = ["Latest checkpoint: none, so nothing can be rolled back yet"]
+        if not self.checkpoints:
+            return "Session: Latest checkpoint: none, so nothing can be rolled back yet"
 
-        if self.pending_changes:
-            parts.append(f"{len(self.pending_changes)} change(s) since it")
+        latest = self.checkpoints[-1]
+        age = int(time() - latest.timestamp)
+        age_str = f"{age}s ago" if age < 60 else f"{age // 60}m ago"
+        parts = [f'Latest checkpoint: "{latest.name}" ({age_str})']
+
+        # Counted off the undo stack rather than tallied as each mutation is made, so changes the
+        # executed code made through `bv` directly are included.
+        changes = self._undo_depth() - latest.undo_depth
+        if changes:
+            parts.append(f"{changes} change(s) since it")
 
         return "Session: " + " | ".join(parts)
 

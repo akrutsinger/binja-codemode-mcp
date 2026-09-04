@@ -20,10 +20,7 @@ from . import tools
 
 if TYPE_CHECKING:
     from ..config import Config
-    from .api import BinjaAPI
     from .executor import CodeExecutor
-    from .state import StateTracker
-    from .workspace import SkillsManager, WorkspaceManager
 
 SERVER_INFO = {"name": "binja-codemode-mcp", "version": plugin_version()}
 
@@ -40,39 +37,6 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
-_RESOURCES = [
-    {
-        "uri": "binja://api-reference",
-        "name": "Binary Ninja API Reference",
-        "description": (
-            "The same API documentation the execute tool already carries in its description. "
-            "Read it here only if that arrived truncated."
-        ),
-        "mimeType": "text/plain",
-    },
-    {
-        "uri": "binja://status",
-        "name": "Binary Status",
-        "description": (
-            "Current binary information: filename, architecture, platform, entry point, "
-            "function count, address range"
-        ),
-        "mimeType": "application/json",
-    },
-    {
-        "uri": "binja://skills",
-        "name": "Available Skills",
-        "description": "Saved reusable analysis skills with descriptions.",
-        "mimeType": "application/json",
-    },
-    {
-        "uri": "binja://files",
-        "name": "Workspace Files",
-        "description": "Files in the current workspace, for carrying results between calls.",
-        "mimeType": "application/json",
-    },
-]
-
 
 class JsonRpcError(Exception):
     """A handler failure that maps onto a JSON-RPC error response."""
@@ -87,19 +51,11 @@ class MCPServer:
 
     def __init__(
         self,
-        api: "BinjaAPI",
-        state: "StateTracker",
         executor: "CodeExecutor",
-        workspace: "WorkspaceManager",
-        skills: "SkillsManager",
         config: "Config",
         get_tools: Callable[[], list[dict]],
     ):
-        self.api = api
-        self.state = state
         self.executor = executor
-        self.workspace = workspace
-        self.skills = skills
         self.config = config
         self.get_tools = get_tools
         self._server: HTTPServer | None = None
@@ -108,8 +64,6 @@ class MCPServer:
             "initialize": self._initialize,
             "tools/list": self._tools_list,
             "tools/call": self._tools_call,
-            "resources/list": self._resources_list,
-            "resources/read": self._resources_read,
             "ping": lambda params: {},
         }
 
@@ -196,7 +150,7 @@ class MCPServer:
             "protocolVersion": (
                 requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
             ),
-            "capabilities": {"tools": {"listChanged": False}, "resources": {}},
+            "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": SERVER_INFO,
         }
 
@@ -205,17 +159,10 @@ class MCPServer:
 
     def _tools_call(self, params):
         name = params.get("name")
+        if name != tools.TOOL_NAME:
+            raise JsonRpcError(INVALID_PARAMS, f"Tool not found: {name}")
+
         arguments = params.get("arguments") or {}
-
-        if name == tools.TOOL_NAME:
-            return self._execute(arguments)
-        if name == "checkpoint":
-            return _text(self._checkpoint(arguments))
-        if name == "rollback":
-            return _text(self._rollback(arguments))
-        raise JsonRpcError(INVALID_PARAMS, f"Tool not found: {name}")
-
-    def _execute(self, arguments):
         code = arguments.get("code") or ""
         if not code.strip():
             raise JsonRpcError(INVALID_PARAMS, "Argument 'code' is required")
@@ -234,40 +181,6 @@ class MCPServer:
             "content": [{"type": "text", "text": "".join(parts) if parts else "(no output)"}],
             "isError": not result.success,
         }
-
-    def _checkpoint(self, arguments):
-        name = arguments.get("name") or ""
-        if not name:
-            raise JsonRpcError(INVALID_PARAMS, "Argument 'name' is required")
-        if self.state.create_checkpoint(name):
-            return f"Checkpoint '{name}' created"
-        return f"Checkpoint '{name}' already exists"
-
-    def _rollback(self, arguments):
-        name = arguments.get("name") or ""
-        if not name:
-            raise JsonRpcError(INVALID_PARAMS, "Argument 'name' is required")
-        if self.state.rollback(name):
-            return f"Rolled back to '{name}'"
-        return f"No checkpoint named '{name}'"
-
-    def _resources_list(self, params):
-        return {"resources": _RESOURCES}
-
-    def _resources_read(self, params):
-        uri = params.get("uri", "")
-        readers = {
-            "binja://api-reference": lambda: "\n\n".join(
-                tool["description"] for tool in self.get_tools()
-            ),
-            "binja://status": lambda: json.dumps(self.api.get_binary_status(), indent=2),
-            "binja://skills": lambda: json.dumps(self.skills.list(), indent=2),
-            "binja://files": lambda: json.dumps(self.workspace.list(), indent=2),
-        }
-        reader = readers.get(uri)
-        if reader is None:
-            raise JsonRpcError(INVALID_PARAMS, f"No resource {uri!r}")
-        return {"contents": [{"uri": uri, "mimeType": "text/plain", "text": reader()}]}
 
 
 class _BoundHTTPServer(HTTPServer):
@@ -334,7 +247,3 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 
 def _error(req_id, code, message):
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
-
-
-def _text(message: str) -> dict:
-    return {"content": [{"type": "text", "text": message}]}
