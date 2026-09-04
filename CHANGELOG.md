@@ -159,6 +159,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- One MCP client blocked every other one, indefinitely. The server used a single-threaded
+  `HTTPServer` with `protocol_version = "HTTP/1.1"`, so `serve_forever()` stayed inside the first
+  connection's keep-alive loop until that client disconnected - and an MCP client holds its
+  connection open for the whole session. The port accepted connections and answered none of them.
+  This was invisible for as long as the only client was the bridge, which connected per request;
+  it appeared the moment a real client did. Connections are now served on their own threads, and
+  the guarantee the single thread was really providing - that two scripts never mutate the
+  BinaryView at once - is enforced where it belongs, by a lock around `execute` alone
 - The execution timeout stopped nothing. `thread.join(timeout=...)` returns when the wait
   expires, not when the thread does, so a script that ran past the limit was reported as timed
   out and then carried on running - still printing, still mutating the BinaryView, and now

@@ -4,14 +4,17 @@ Binary Ninja's API only exists inside Binary Ninja's own process, so the server 
 Clients speak MCP to it directly over HTTP; there is no separate bridge process translating stdio
 to a REST API of our own invention.
 
-The server is deliberately single-threaded. Executed code mutates the BinaryView, and serialising
-requests is what keeps two overlapping `execute` calls from racing on the database.
+Connections are served on their own threads, but `execute` is serialised behind a lock. Executed
+code mutates the BinaryView, so two overlapping executions must not race on the database - but
+serialising the transport to achieve that, as this server used to, means one client holding an
+idle keep-alive connection blocks every other client for as long as it stays connected. The
+guarantee belongs on the execution, which is the thing that touches the database.
 """
 
 import json
 import threading
 from collections.abc import Callable
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -37,6 +40,11 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
+# How much longer than one execution's own budget to wait for the lock before giving up, so a
+# queued caller outlasts a call that is timing out and being interrupted rather than failing
+# alongside it.
+LOCK_WAIT_MARGIN_S = 15.0
+
 
 class JsonRpcError(Exception):
     """A handler failure that maps onto a JSON-RPC error response."""
@@ -58,7 +66,11 @@ class MCPServer:
         self.executor = executor
         self.config = config
         self.get_tools = get_tools
-        self._server: HTTPServer | None = None
+        # One execution at a time. The transport no longer provides this, and the database needs
+        # it: two scripts mutating the same BinaryView concurrently is the race the old
+        # single-threaded server was really guarding against.
+        self._execution_lock = threading.Lock()
+        self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._handlers = {
             "initialize": self._initialize,
@@ -167,7 +179,25 @@ class MCPServer:
         if not code.strip():
             raise JsonRpcError(INVALID_PARAMS, "Argument 'code' is required")
 
-        result = self.executor.execute(code)
+        # Wait out a call already in flight rather than racing it. The bound is the executor's own
+        # timeout plus its interrupt grace, so the only way to miss the lock is a thread that
+        # overran and could not be stopped - which the executor reports on its own.
+        budget = self.config.execution_timeout_s + LOCK_WAIT_MARGIN_S
+        if not self._execution_lock.acquire(timeout=budget):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Another execution has held this BinaryView for more than "
+                        f"{budget:.0f}s and has not finished. Nothing was run.",
+                    }
+                ],
+                "isError": True,
+            }
+        try:
+            result = self.executor.execute(code)
+        finally:
+            self._execution_lock.release()
         parts = []
         if result.output:
             parts.append(result.output)
@@ -183,9 +213,10 @@ class MCPServer:
         }
 
 
-class _BoundHTTPServer(HTTPServer):
-    """An HTTPServer carrying the MCPServer, so handlers reach it without class-level globals."""
+class _BoundHTTPServer(ThreadingHTTPServer):
+    """A ThreadingHTTPServer carrying the MCPServer, so handlers reach it without class globals."""
 
+    daemon_threads = True
     mcp: MCPServer
 
 
