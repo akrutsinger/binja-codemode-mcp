@@ -932,17 +932,23 @@ class BinjaAPI:
         return matches[:limit]
 
     def describe(self, name: str) -> dict:
-        """Full signature and docstring for one Binary Ninja API member.
+        """Full signature and docstring for one Binary Ninja API member, class or enum.
 
-        Takes a qualified name like "BinaryView.read" or a bare one like "read". A bare name that
-        sits on several types resolves to the most central one and reports the rest.
+        Takes a qualified name like "BinaryView.read", a bare one like "read", or a class name
+        like "Symbol". A bare name that sits on several types resolves to the most central one
+        and reports the rest. A class answers with its constructor signature, and an enum with
+        its members, because "how do I build one of these" is the question a member cannot
+        answer.
 
         Returns:
-            {name, kind, signature, doc} plus also_defined_on when the bare name was ambiguous
+            {name, kind, signature, doc}, plus also_defined_on for an ambiguous bare name or members for an enum
         """
         members = _binaryninja_members()
         others = []
         if name not in members:
+            cls = _resolve_class_name(name)
+            if cls is not None:
+                return _describe_class(name, cls)
             name, others = _resolve_member_name(name, members)
         detail = _describe_member(name, members[name], summary_only=False)
         if others:
@@ -1054,6 +1060,53 @@ def _describe_member(name: str, member, summary_only: bool = True) -> dict:
     return entry
 
 
+def _resolve_class_name(name: str):
+    """The class object for a bare class name, or None if the name is not one.
+
+    Read off the binaryninja module rather than _DISCOVERY_ROOTS, so a type that only ever
+    appears in an annotation - CoreSymbol, say - still answers.
+    """
+    import inspect
+
+    import binaryninja
+
+    cls = getattr(binaryninja, name, None)
+    return cls if inspect.isclass(cls) else None
+
+
+def _describe_class(name: str, cls) -> dict:
+    """Constructor signature for a class, member list for an enum.
+
+    An enum's __init__ is int's and says nothing; the members are the whole point, and passing a
+    wrong one is a silent empty result rather than an error.
+    """
+    import enum
+    import inspect
+
+    doc = inspect.getdoc(cls) or ""
+
+    if issubclass(cls, enum.Enum):
+        return {
+            "name": name,
+            "kind": "enum",
+            "signature": "",
+            "doc": doc,
+            "members": [member.name for member in cls],
+        }
+
+    try:
+        signature = str(inspect.signature(cls))
+    except (TypeError, ValueError):
+        # Some Binary Ninja classes are constructed by the core and expose no Python __init__.
+        signature = ""
+    return {
+        "name": name,
+        "kind": "class",
+        "signature": _FORWARD_REF.sub(r"\1", signature),
+        "doc": doc,
+    }
+
+
 def _resolve_member_name(name: str, members: dict) -> tuple[str, list[str]]:
     """Accept a bare member name, so describe('get_functions_containing') works.
 
@@ -1071,6 +1124,6 @@ def _resolve_member_name(name: str, members: dict) -> tuple[str, list[str]]:
     )
     if not candidates:
         raise BinjaAPIError(
-            f"No Binary Ninja API member named {name!r}. Use search_api() to find one."
+            f"No Binary Ninja API member or class named {name!r}. Use search_api() to find one."
         )
     return candidates[0], candidates[1:]

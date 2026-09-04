@@ -145,6 +145,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Ties now break towards the earliest entry in the roots list, which is ordered by how central the
   type is, and the result carries `also_defined_on` naming the types that lost, so the choice is
   visible rather than silent
+- `describe()` now answers for a class or an enum, not only for a member of one. `search_api()`
+  routinely returns a method whose parameter is a type - `define_user_symbol(sym: CoreSymbol)` -
+  and every route to that type's constructor was closed: `describe("Symbol")`, `describe("bn.Symbol")`
+  and `describe("Symbol.__init__")` all raised, while the error told the caller to use
+  `search_api()`, which had already found the name. So the one question the discovery layer exists
+  to answer - how do I build one of these - was the one it could not. A class now answers with its
+  constructor signature, and an enum with its members, since an enum's `__init__` is `int`'s and
+  says nothing while a wrong member is a silent empty result rather than an error
 - Checkpoint and rollback never worked. `StateTracker` read the undo stack through
   `bv.undoable_actions()`, which is not a `BinaryView` method; `create_checkpoint()` swallowed the
   `AttributeError` and recorded a depth of 0 while reporting success, and `rollback()` swallowed
