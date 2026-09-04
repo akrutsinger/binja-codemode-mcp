@@ -5,7 +5,7 @@ Provides a clickable status indicator showing MCP server state.
 """
 
 from binaryninja import UIPluginInHeadlessError, execute_on_main_thread
-from binaryninja.log import log_debug, log_error, log_info
+from binaryninja.log import log_debug, log_error
 
 try:
     from binaryninjaui import UIContext, UIContextNotification
@@ -64,8 +64,6 @@ def _create_status_button():
 
 def _on_button_click():
     """Handle status button click to toggle server state."""
-    global _plugin_instance
-
     if _plugin_instance is None:
         log_error("MCP Status: Plugin instance not set")
         return
@@ -98,8 +96,6 @@ def _get_active_binary_view():
 
 def _update_status_indicator():
     """Update the status button text based on server state."""
-    global _status_button, _plugin_instance
-
     if _status_button is None or _plugin_instance is None:
         return
 
@@ -109,8 +105,6 @@ def _update_status_indicator():
 
 def _on_file_closed(context, frame):
     """Handle file closed by stopping MCP server if no binary views remain."""
-    global _plugin_instance
-
     if _plugin_instance is None or not _plugin_instance.is_running:
         return
 
@@ -137,8 +131,6 @@ def _on_file_closed(context, frame):
 
 def _ensure_indicator_in_status_bar():
     """Ensure the status indicator is present in the status bar."""
-    global _status_container
-
     ctx = UIContext.activeContext()
     if ctx is None:
         return
@@ -199,7 +191,7 @@ def init_status_indicator(plugin_instance):
     Args:
         plugin_instance: The BinjaCodeModeMCP plugin instance
     """
-    global _indicator_timer, _ui_notification, _plugin_instance, _HAS_UI
+    global _indicator_timer, _ui_notification, _plugin_instance
 
     if not _HAS_UI:
         log_debug("MCP Status: UI not available (headless mode)")
@@ -226,8 +218,6 @@ def update_status(running: bool):
     Args:
         running: Whether the server is running
     """
-    global _status_button, _HAS_UI
-
     if not _HAS_UI or _status_button is None:
         return
 

@@ -2,8 +2,9 @@
 
 import json
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from ..config import plugin_version
 
@@ -29,7 +30,6 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         """Suppress default HTTP logging."""
-        pass
 
     def _check_auth(self) -> bool:
         """Verify API key."""

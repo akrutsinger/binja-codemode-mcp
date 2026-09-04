@@ -13,8 +13,6 @@ if TYPE_CHECKING:
 class BinjaAPIError(Exception):
     """Custom exception for API errors with detailed messages."""
 
-    pass
-
 
 class BinjaAPI:
     """
@@ -1067,7 +1065,7 @@ class BinjaAPI:
         try:
             # parse_type_string returns (Type, str) where str is the name or (None, error_string) on
             # failure
-            parsed_type, type_name = self._bv.parse_type_string(signature)
+            parsed_type, _ = self._bv.parse_type_string(signature)
 
             if parsed_type is not None:
                 f.type = parsed_type
