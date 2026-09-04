@@ -48,6 +48,9 @@ USING THE API
 - Many methods return None when a function or address does not resolve. Check before using.
 - binja.function(name_or_addr) hands back the real Function object, and `bv` reaches the rest:
   assign to its attributes directly, as in binja.function("main").name = "parse_header".
+- Assigning a function's type only queues reanalysis, so `binja.function("f").type = ...` reads
+  back as the old signature until `bv.update_analysis_and_wait()` runs. Variable types, renames
+  and comments apply immediately; function signatures do not.
 - Patching is Binary Ninja's own API. bv.write(addr, data) writes bytes, bv.convert_to_nop(addr)
   NOPs one instruction correctly for the architecture, and bv.arch.assemble(asm, addr) returns
   the bytes to write. Read bv.read(addr, n) first if you want to be able to put it back.

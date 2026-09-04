@@ -178,7 +178,11 @@ class BinjaAPI:
             return False
 
     def set_function_signature(self, func: str | int, signature: str) -> bool:
-        """Set function prototype.
+        """Set function prototype, and wait for the analysis that makes it visible.
+
+        Assigning a function type only queues reanalysis, so reading the signature back in the
+        same call returns the old one. This waits, which is the whole reason the method is still
+        here: True means the new signature is in effect, not that it has been scheduled.
 
         Args:
             func: Function name or address
@@ -195,6 +199,7 @@ class BinjaAPI:
 
             if parsed_type is not None:
                 f.type = parsed_type
+                self._bv.update_analysis_and_wait()
                 return True
         except Exception:
             # If parsing fails entirely, fall through to False

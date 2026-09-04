@@ -192,6 +192,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0x100140c)` returned `sub_1001399`. Resolution now asks `get_function_at()` first and falls
   back to `get_functions_containing()`, so an entry point resolves to its own function and an
   address in the middle of one still resolves to a container
+- `set_function_signature()` reported success for a change that had not happened yet. Assigning
+  a function's type queues reanalysis rather than applying it, so the method returned True and
+  the very next read returned the old signature - the model saw a working call produce no effect
+  and concluded the method was broken. It now waits for the analysis, so True means the signature
+  is in effect. Variable types, renames and comments were never affected; function signatures
+  alone are deferred, and the guidance now says so for the `binja.function(...).type = ...` path
+  that no method covers
 - `set_function_signature()` now correctly validates parsed types with explicit None check
 - `find_bytes()` and `list_strings()` now default their optional arguments, matching how they have
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
