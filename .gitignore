@@ -2,3 +2,4 @@
 pyrightconfig.json
 __pycache__/
 *.py[cod]
+.ruff_cache/

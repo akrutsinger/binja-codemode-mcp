@@ -53,7 +53,7 @@ def _load_api_key(data_dir: Path) -> str:
                 config = json.load(f)
                 if "api_key" in config:
                     return config["api_key"]
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
 
     return DEFAULT_API_KEY

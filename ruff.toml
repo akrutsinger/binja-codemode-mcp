@@ -1,0 +1,22 @@
+# Without this file ruff falls back to 88, which is narrower than this code is written to, so
+# format-on-save reflows every file it touches. Pin the width and the rules the design
+# deliberately breaks, so the editor agrees with what is committed.
+line-length = 100
+
+[lint]
+# E402 so the deliberate `# noqa: E402` in scripts/ (they extend sys.path before importing
+# the plugin) stays load-bearing rather than dead.
+extend-select = ["I", "E402"]
+ignore = [
+    # Nearly every Binary Ninja call can raise from native code, and the API contract is to
+    # return None or False rather than propagate. Catching Exception is the contract, not a slip.
+    "BLE001",
+]
+
+[lint.per-file-ignores]
+# Running LLM-authored code is what this module is for; see its docstring on why there is no
+# sandbox. The bare except is what turns a raised exception into the traceback the model reads.
+"plugin/executor.py" = ["S102"]
+# These read Binary Ninja state that may be absent or malformed, and a failed probe means
+# "no result" rather than an error worth logging.
+"plugin/api.py" = ["S110", "S112"]

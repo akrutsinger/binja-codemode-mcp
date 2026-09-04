@@ -65,9 +65,7 @@ class StateTracker:
             return False
 
         # Remove checkpoints created after this one
-        self.checkpoints = [
-            cp for cp in self.checkpoints if cp.timestamp <= checkpoint.timestamp
-        ]
+        self.checkpoints = [cp for cp in self.checkpoints if cp.timestamp <= checkpoint.timestamp]
         self.pending_changes.clear()
         return True
 

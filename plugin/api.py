@@ -82,17 +82,12 @@ class BinjaAPI:
                 continue
             if max_size is not None and f.total_bytes > max_size:
                 continue
-            if (
-                name_contains is not None
-                and name_contains.lower() not in f.name.lower()
-            ):
+            if name_contains is not None and name_contains.lower() not in f.name.lower():
                 continue
             if has_calls_to is not None:
                 # Check if this function calls the target
                 target_lower = has_calls_to.lower()
-                calls_target = any(
-                    target_lower in callee.name.lower() for callee in f.callees
-                )
+                calls_target = any(target_lower in callee.name.lower() for callee in f.callees)
                 if not calls_target:
                     continue
 
@@ -301,9 +296,7 @@ class BinjaAPI:
         # Validate il_level parameter
         valid_levels = ["hlil", "mlil", "llil"]
         if il_level not in valid_levels:
-            raise ValueError(
-                f"il_level must be one of {valid_levels}, got '{il_level}'"
-            )
+            raise ValueError(f"il_level must be one of {valid_levels}, got '{il_level}'")
 
         f = self._resolve_function(func)
         if not f:
@@ -481,9 +474,7 @@ class BinjaAPI:
         # BFS to find paths
         chains = []
         visited = set()
-        queue = [
-            ([{"function": start_func.name, "address": start_func.start}], start_func)
-        ]
+        queue = [([{"function": start_func.name, "address": start_func.start}], start_func)]
 
         while queue and len(chains) < 100:  # Limit results
             path, current_func = queue.pop(0)
@@ -629,9 +620,7 @@ class BinjaAPI:
                             target_addr = instr.dest.constant
                             if target_addr not in seen:
                                 seen.add(target_addr)
-                                target_funcs = self._bv.get_functions_containing(
-                                    target_addr
-                                )
+                                target_funcs = self._bv.get_functions_containing(target_addr)
                                 if target_funcs:
                                     results.append(
                                         {
@@ -757,9 +746,7 @@ class BinjaAPI:
 
         try:
             compiled_pattern = (
-                regex_module.compile(pattern, regex_module.IGNORECASE)
-                if regex
-                else None
+                regex_module.compile(pattern, regex_module.IGNORECASE) if regex else None
             )
         except regex_module.error:
             return []
@@ -834,9 +821,7 @@ class BinjaAPI:
                 to_id = block_map.get(edge.target.start)
                 if to_id is not None:
                     edge_type = str(edge.type).split(".")[-1].lower()
-                    edges.append(
-                        {"from_id": from_id, "to_id": to_id, "type": edge_type}
-                    )
+                    edges.append({"from_id": from_id, "to_id": to_id, "type": edge_type})
 
         return {
             "function": f.name,
@@ -882,9 +867,7 @@ class BinjaAPI:
         for var in f.vars:
             if var.name == old_name:
                 var.name = new_name
-                self._state.record_change(
-                    f"rename var in {f.name}: {old_name} -> {new_name}"
-                )
+                self._state.record_change(f"rename var in {f.name}: {old_name} -> {new_name}")
                 return True
         return False
 
@@ -901,9 +884,7 @@ class BinjaAPI:
         for var in f.vars:
             if var.name == var_name:
                 var.type = parsed_type
-                self._state.record_change(
-                    f"retype var {var_name} in {f.name} to {new_type}"
-                )
+                self._state.record_change(f"retype var {var_name} in {f.name} to {new_type}")
                 return True
         return False
 
@@ -939,9 +920,7 @@ class BinjaAPI:
         self._state.record_change(f"delete comment on {f.name}")
         return True
 
-    def bulk_rename(
-        self, mapping: dict[str, str], target_type: str = "function"
-    ) -> dict:
+    def bulk_rename(self, mapping: dict[str, str], target_type: str = "function") -> dict:
         """Rename multiple items at once.
 
         Args:
@@ -969,11 +948,7 @@ class BinjaAPI:
                 else:
                     # Try to parse as address
                     try:
-                        addr = (
-                            int(old_name, 16)
-                            if old_name.startswith("0x")
-                            else int(old_name)
-                        )
+                        addr = int(old_name, 16) if old_name.startswith("0x") else int(old_name)
                         success = self.rename_data(addr, new_name)
                     except ValueError:
                         success = False
@@ -1032,9 +1007,7 @@ class BinjaAPI:
                 if success:
                     results["success_count"] += 1
                 else:
-                    results["failed"].append(
-                        {"update": update, "error": "Type update failed"}
-                    )
+                    results["failed"].append({"update": update, "error": "Type update failed"})
             except Exception as e:
                 results["failed"].append({"update": update, "error": str(e)})
 
@@ -1105,9 +1078,7 @@ class BinjaAPI:
                     "address": addr,
                 }
 
-            self._state.record_change(
-                f"patch {len(data)} bytes at {addr:#x}: {data.hex()}"
-            )
+            self._state.record_change(f"patch {len(data)} bytes at {addr:#x}: {data.hex()}")
 
             return {
                 "success": True,
@@ -1318,14 +1289,10 @@ class BinjaAPI:
 
             if raise_on_error:
                 # Suggest similar names
-                similar = [
-                    f.name for f in self._bv.functions if func.lower() in f.name.lower()
-                ]
+                similar = [f.name for f in self._bv.functions if func.lower() in f.name.lower()]
                 if similar:
                     suggestions = ", ".join(similar[:5])
-                    raise BinjaAPIError(
-                        f"Function '{func}' not found. Similar: {suggestions}"
-                    )
+                    raise BinjaAPIError(f"Function '{func}' not found. Similar: {suggestions}")
                 else:
                     raise BinjaAPIError(
                         f"Function '{func}' not found. Use list_functions() to see available functions."
@@ -1436,9 +1403,7 @@ class BinjaAPI:
             entry
             for name, member in _binaryninja_members().items()
             for entry in [_describe_member(name, member)]
-            if all(
-                term in name.lower() or term in entry["summary"].lower() for term in terms
-            )
+            if all(term in name.lower() or term in entry["summary"].lower() for term in terms)
         ]
         matches.sort(key=lambda entry: entry["name"])
         return matches[:limit]
@@ -1531,6 +1496,4 @@ def _resolve_member_name(name: str, members: dict) -> str:
             f"{name!r} exists on several types: {', '.join(sorted(candidates))}. "
             f"Pass the qualified name."
         )
-    raise BinjaAPIError(
-        f"No Binary Ninja API member named {name!r}. Use search_api() to find one."
-    )
+    raise BinjaAPIError(f"No Binary Ninja API member named {name!r}. Use search_api() to find one.")

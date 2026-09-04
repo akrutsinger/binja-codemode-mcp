@@ -26,8 +26,8 @@ class BinjaCodeModeMCP:
         if self._components is not None:
             return self._components
 
-        from . import tools
         from ..config import Config
+        from . import tools
         from .api import BinjaAPI
         from .executor import CodeExecutor
         from .server import MCPServer
@@ -77,9 +77,7 @@ class BinjaCodeModeMCP:
 
             def get_tools():
                 surface = components["tools"].api_surface(api)
-                return components["tools"].build_tool_definitions(
-                    surface, state.get_summary()
-                )
+                return components["tools"].build_tool_definitions(surface, state.get_summary())
 
             self._server = components["MCPServer"](
                 api, state, executor, workspace, skills, self._config, get_tools

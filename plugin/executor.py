@@ -86,13 +86,9 @@ class CodeExecutor:
                 # code cannot see the names the code assigned, since its body resolves globals.
                 exec(compile(body, "<mcp>", "exec"), namespace)
                 if tail is not None:
-                    result_holder["value"] = eval(
-                        compile(tail, "<mcp>", "eval"), namespace
-                    )
+                    result_holder["value"] = eval(compile(tail, "<mcp>", "eval"), namespace)
             except Exception as e:
-                result_holder["error"] = (
-                    f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
-                )
+                result_holder["error"] = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
         thread = threading.Thread(target=run_code)
         thread.start()

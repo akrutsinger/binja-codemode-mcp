@@ -4,7 +4,6 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 # Valid filename pattern: alphanumeric, underscore, hyphen, dot
 _VALID_FILENAME = re.compile(r"^[\w\-\.]+$")
@@ -49,7 +48,7 @@ class WorkspaceManager:
         path.write_text(content, encoding="utf-8")
         return True
 
-    def read(self, name: str) -> Optional[str]:
+    def read(self, name: str) -> str | None:
         """Read content from workspace file."""
         if not _validate_name(name):
             return None
@@ -123,7 +122,7 @@ class SkillsManager:
         path.write_text(json.dumps(skill_data, indent=2), encoding="utf-8")
         return True
 
-    def load(self, name: str) -> Optional[Skill]:
+    def load(self, name: str) -> Skill | None:
         """Load a skill by name."""
         if not _validate_name(name):
             return None
@@ -170,7 +169,7 @@ class SkillsManager:
         path.unlink()
         return True
 
-    def get_code(self, name: str) -> Optional[str]:
+    def get_code(self, name: str) -> str | None:
         """Get just the code for a skill."""
         skill = self.load(name)
         return skill.code if skill else None

@@ -45,9 +45,7 @@ def _create_status_button():
     _status_button.setCursor(Qt.PointingHandCursor)
     _status_button.setToolTip("Click to start/stop MCP server")
     _status_button.setContentsMargins(0, 0, 0, 0)
-    _status_button.setStyleSheet(
-        "margin:0; padding:0 6px; border:0; border-radius:1px;"
-    )
+    _status_button.setStyleSheet("margin:0; padding:0 6px; border:0; border-radius:1px;")
     _status_button.setText(_get_status_text(False))
     _status_button.clicked.connect(_on_button_click)
 

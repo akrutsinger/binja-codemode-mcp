@@ -9,7 +9,6 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from typing import Optional
 
 # Logging configuration (use stderr to avoid interfering with JSON-RPC on stdout)
 log_level = os.environ.get("BINJA_MCP_LOG_LEVEL", "INFO")
@@ -53,7 +52,7 @@ OFFLINE_TOOLS = [
 ]
 
 
-def make_request(method: str, path: str, data: Optional[dict] = None) -> dict:
+def make_request(method: str, path: str, data: dict | None = None) -> dict:
     """Make HTTP request to Binary Ninja server."""
     url = f"{SERVER_URL}{path}"
     headers = {
@@ -73,7 +72,7 @@ def make_request(method: str, path: str, data: Optional[dict] = None) -> dict:
         return {"error": f"Connection failed: {e.reason}"}
 
 
-def read_message() -> Optional[dict]:
+def read_message() -> dict | None:
     """Read JSON-RPC message from stdin."""
     line = ""
     try:
@@ -252,7 +251,7 @@ def load_config():
                     SERVER_URL = config.get("url", SERVER_URL)
                     API_KEY = config.get("api_key", API_KEY)
                     return
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 continue
 
 
@@ -301,7 +300,6 @@ def main():
                 write_message({"jsonrpc": "2.0", "id": msg_id, "result": result})
             elif method == "notifications/initialized":
                 logger.debug("Received initialized notification")
-                pass
             else:
                 logger.warning("Unknown method: %s", method)
                 write_message(
@@ -325,7 +323,7 @@ def main():
                             "id": msg.get("id"),
                             "error": {
                                 "code": -32603,
-                                "message": f"Internal error: {str(e)}",
+                                "message": f"Internal error: {e!s}",
                             },
                         }
                     )

@@ -151,8 +151,7 @@ def build_context_header(surface, state_summary=""):
         f"Arch: {status['architecture']} | Platform: {status['platform']} | "
         f"Functions: {status['function_count']} | "
         f"Range: {status['start']:#x}-{status['end']:#x}",
-        f"Workspace: {len(surface['list_files']())} file(s) | "
-        f"Skills: {len(skills)} available",
+        f"Workspace: {len(surface['list_files']())} file(s) | Skills: {len(skills)} available",
     ]
     if skills:
         lines.append("Saved skills: " + ", ".join(skill["name"] for skill in skills))
@@ -246,7 +245,5 @@ def method_signature(method):
 
 
 def _name(annotation):
-    rendered = (
-        annotation if isinstance(annotation, str) else inspect.formatannotation(annotation)
-    )
+    rendered = annotation if isinstance(annotation, str) else inspect.formatannotation(annotation)
     return rendered.replace("typing.", "")

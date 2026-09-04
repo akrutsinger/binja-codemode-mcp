@@ -138,9 +138,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "success": success,
-                    "message": f"Rolled back to '{name}'"
-                    if success
-                    else "Checkpoint not found",
+                    "message": f"Rolled back to '{name}'" if success else "Checkpoint not found",
                 }
             )
 
@@ -183,9 +181,7 @@ class MCPServer:
         # staticmethod, or the attribute lookup binds it and passes the handler as an argument.
         MCPRequestHandler.get_tools = staticmethod(self.get_tools)
 
-        self._server = HTTPServer(
-            (self.config.host, self.config.port), MCPRequestHandler
-        )
+        self._server = HTTPServer((self.config.host, self.config.port), MCPRequestHandler)
 
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
