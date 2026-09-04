@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `search_api()` and `describe()` now look at 31 Binary Ninja types rather than 6. The old list
+  covered what the wrapper methods themselves used; this one covers what the model reaches for
+  when it leaves the wrapper - `Variable`, `DataVariable`, `Section`, `Segment`, the IL function
+  and instruction classes, `SymbolType` and `SymbolBinding`, tags, and the binary readers. The
+  catalogue is 2,112 members and takes 3 ms to build, and none of it is in the tool description,
+  so the reach is free in context. A type missing from the running version is skipped rather than
+  raising
 - `binja.checkpoint(name)`, `binja.rollback(name)` and `binja.list_checkpoints()` - checkpointing
   from inside executed code, so a script can take one before mutating and roll itself back.
   Checkpoints exist for the one thing Binary Ninja's own undo API cannot express: spanning several

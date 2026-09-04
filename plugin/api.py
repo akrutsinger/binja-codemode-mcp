@@ -1460,15 +1460,53 @@ class BinjaAPI:
         return _describe_member(name, members[name], summary_only=False)
 
 
-# Where search_api() and describe() look. Binary Ninja's API is large; these are the types the
-# analysis code above actually threads through, plus the module's own top-level functions.
+# Where search_api() and describe() look, plus the module's own top-level functions. This is the
+# escape hatch the whole design leans on: the wrapper methods cover the common path, and anything
+# they do not cover has to be findable here or it is a dead end. So the list covers the types the
+# model actually threads through when it leaves the wrapper, not just the ones the wrapper itself
+# uses. A name absent from the running version is skipped rather than raising, so listing a type
+# that some builds do not ship costs nothing.
+#
+# Deliberately absent: Settings, TypeLibrary, Component and FlowGraph configure or extend Binary
+# Ninja rather than describe a binary, and none of them come up in analysis code.
 _DISCOVERY_ROOTS = (
+    # Core
     "BinaryView",
     "Function",
     "BasicBlock",
-    "Type",
-    "Symbol",
     "Architecture",
+    "Platform",
+    "FileMetadata",
+    # Data and references
+    "Variable",
+    "DataVariable",
+    "Section",
+    "Segment",
+    "Symbol",
+    "StringReference",
+    "ReferenceSource",
+    # Types
+    "Type",
+    "NamedTypeReferenceType",
+    "StructureBuilder",
+    "EnumerationBuilder",
+    "TypeParser",
+    # Intermediate languages
+    "LowLevelILFunction",
+    "MediumLevelILFunction",
+    "HighLevelILFunction",
+    "LowLevelILInstruction",
+    "MediumLevelILInstruction",
+    "HighLevelILInstruction",
+    # Enums worth spelling out, since a wrong member is a silent empty result
+    "SymbolType",
+    "SymbolBinding",
+    # Tags, raw IO and rendering
+    "Tag",
+    "TagType",
+    "BinaryReader",
+    "BinaryWriter",
+    "InstructionTextToken",
 )
 
 
