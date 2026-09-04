@@ -177,6 +177,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to answer - how do I build one of these - was the one it could not. A class now answers with its
   constructor signature, and an enum with its members, since an enum's `__init__` is `int`'s and
   says nothing while a wrong member is a silent empty result rather than an error
+- `rollback()` reverted nothing, and reported success, when the changes it was undoing were made
+  in the same `execute` call as the checkpoint. Binary Ninja holds a mutation made outside an
+  explicit transaction in an anonymous one and commits it at its own pace, so `undo_entries` had
+  not grown yet: the depth arithmetic came out at zero and the loop ran no iterations. The shape
+  that failed is the obvious one - checkpoint, try something, roll back if it went wrong, all in
+  one script. Depth is now measured after committing pending actions, which is safe inside a
+  `with bv.undoable_transaction():` since that still reverts its own block on an exception
+- `rollback()` also waits for analysis before returning, so an undone function signature reads
+  back as the old one. The undo itself was always correct; the result was only invisible, for the
+  same reason setting a signature appeared to do nothing
 - Checkpoint and rollback never worked. `StateTracker` read the undo stack through
   `bv.undoable_actions()`, which is not a `BinaryView` method; `create_checkpoint()` swallowed the
   `AttributeError` and recorded a depth of 0 while reporting success, and `rollback()` swallowed

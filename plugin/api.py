@@ -229,6 +229,9 @@ class BinjaAPI:
     def rollback(self, name: str) -> bool:
         """Undo every change made since the named checkpoint, discarding later checkpoints.
 
+        Waits for analysis before returning, so a reverted function signature reads back as the
+        old one rather than needing another call to become visible.
+
         Returns:
             True, or False if no checkpoint of that name exists
         """
@@ -241,6 +244,10 @@ class BinjaAPI:
         # predates it.
         for _ in range(self._undo_depth() - self._checkpoints[name]):
             self._bv.undo()
+
+        # Undoing a function type change only queues the reanalysis that makes it visible, the
+        # same way setting one does.
+        self._bv.update_analysis_and_wait()
 
         taken_at = self._checkpoints[name]
         self._checkpoints = {
@@ -257,7 +264,16 @@ class BinjaAPI:
         return [{"name": name, "undo_depth": depth} for name, depth in self._checkpoints.items()]
 
     def _undo_depth(self) -> int:
-        """How many committed transactions deep the database currently is."""
+        """How many committed transactions deep the database currently is.
+
+        Commits first. A mutation made outside an explicit transaction sits in an anonymous one
+        that Binary Ninja commits at its own pace, so measuring without committing misses
+        everything the calling code has just done: a checkpoint would record a depth from before
+        its own call's work, and a rollback in that same call would undo nothing while reporting
+        success. Committing is safe inside a `with bv.undoable_transaction():`, which still
+        reverts its own block on an exception.
+        """
+        self._bv.commit_undo_actions()
         return len(self._bv.file.undo_entries)
 
     # =========================================================================
