@@ -844,6 +844,20 @@ class BinjaAPI:
                 results.append({"from_function": caller[0].name, "from_address": ref.address})
         return results
 
+    def _function_at_address(self, addr: int):
+        """The function starting at addr, else whichever function contains it.
+
+        get_functions_containing() on its own is wrong wherever two functions share a basic
+        block: asked for an address that is one function's entry point it can answer with a
+        different function that merely covers it, and the caller then decompiles, renames or
+        patches the wrong function with nothing to show that it did.
+        """
+        exact = self._bv.get_function_at(addr)
+        if exact is not None:
+            return exact
+        containing = self._bv.get_functions_containing(addr)
+        return containing[0] if containing else None
+
     def _resolve_function(self, func: str | int, raise_on_error: bool = False):
         """Resolve function by name or address.
 
@@ -858,22 +872,18 @@ class BinjaAPI:
             BinjaAPIError: If raise_on_error=True and function not found
         """
         if isinstance(func, int):
-            funcs = self._bv.get_functions_containing(func)
-            if not funcs:
-                if raise_on_error:
-                    raise BinjaAPIError(f"No function found at address {func:#x}")
-                return None
-            return funcs[0]
+            f = self._function_at_address(func)
+            if f is None and raise_on_error:
+                raise BinjaAPIError(f"No function found at address {func:#x}")
+            return f
         elif isinstance(func, str):
             # Try to parse as hex string first
             try:
                 addr = int(func, 16) if func.startswith("0x") else int(func)
-                funcs = self._bv.get_functions_containing(addr)
-                if funcs:
-                    return funcs[0]
-                if raise_on_error:
+                f = self._function_at_address(addr)
+                if f is None and raise_on_error:
                     raise BinjaAPIError(f"No function found at address {addr:#x}")
-                return None
+                return f
             except ValueError:
                 pass  # Not an address, treat as name
 

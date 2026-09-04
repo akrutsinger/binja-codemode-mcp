@@ -161,6 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mutation as its own undo entry, so a rollback reverts changes made through `bv` directly as well
   as those made through `binja`. A checkpoint recorded deeper than the current stack rolls back to
   nothing rather than undoing work that predates it
+- Every `func` argument resolved to the wrong function wherever two functions share a basic
+  block. `_resolve_function()` asked `get_functions_containing()`, which answers with any
+  function covering the address, so an address that is one function's own entry point could
+  return a different function that merely overlaps it - on the test binary, `binja.decompile(
+  0x100140c)` returned `sub_1001399`. Resolution now asks `get_function_at()` first and falls
+  back to `get_functions_containing()`, so an entry point resolves to its own function and an
+  address in the middle of one still resolves to a container
 - `set_function_signature()` now correctly validates parsed types with explicit None check
 - `find_bytes()` and `list_strings()` now default their optional arguments, matching how they have
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
