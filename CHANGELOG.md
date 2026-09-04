@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `set_function_signature()` now correctly validates parsed types with explicit None check
+- `find_bytes()` and `list_strings()` now default their optional arguments, matching how they have
+  always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
 
 ## [0.1.3] - 2026-01-08
 

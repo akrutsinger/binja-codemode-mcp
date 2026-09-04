@@ -648,7 +648,11 @@ class BinjaAPI:
         return results
 
     def find_bytes(
-        self, pattern: bytes, start: int | None, end: int | None, limit: int = 100
+        self,
+        pattern: bytes,
+        start: int | None = None,
+        end: int | None = None,
+        limit: int = 100,
     ) -> list[int]:
         """Search for byte pattern in binary. Returns list of addresses.
 
@@ -679,7 +683,7 @@ class BinjaAPI:
         return results
 
     def list_strings(
-        self, limit: int | None, min_length: int = 4, offset: int = 0
+        self, limit: int | None = None, min_length: int = 4, offset: int = 0
     ) -> list[dict]:
         """List strings in binary with pagination.
 
