@@ -21,10 +21,11 @@ _GUIDE = """
 ENVIRONMENT
 - Three names are already in scope: `binja` carries the methods above, `bv` is the raw
   BinaryView, and `bn` is the binaryninja module. Do not import or construct them.
-- The methods above are convenience wrappers that return plain JSON-friendly values. Anything
-  they do not cover, reach through `bv` and `bn` directly: binja.search_api(query) finds the
-  member and binja.describe(name) gives its real signature and docstring, read from the Binary
-  Ninja that is actually running. Do not guess at API names; look them up.
+- The methods above cover the common path and return plain JSON-friendly values. They are a
+  starting point, not the boundary: `bv` and `bn` are the full Binary Ninja API and reaching for
+  them is expected, not a fallback. binja.search_api(query) finds a member and
+  binja.describe(name) gives its real signature and docstring, read from the Binary Ninja that is
+  actually running. Do not guess at API names; look them up, then call them.
 - This is ordinary CPython inside Binary Ninja, so the whole standard library is importable.
 - Both what you print() and the value of the last expression come back, so a trailing bare
   expression needs no print().
@@ -40,8 +41,9 @@ USING THE API
   and binja.decompile(0x401000) are the same call.
 - Addresses are ints. Write them as hex literals.
 - Many methods return None when a function or address does not resolve. Check before using.
-- Prefer the batch methods over a Python loop that calls a single-item method N times:
-  analyze_functions_batch(), bulk_rename() and batch_set_types() each cost one pass.
+- The methods above are a convenience layer over the common path, not the boundary. For anything
+  else, binja.function(name_or_addr) hands back the real Function object and `bv` reaches the
+  rest: assign to its attributes directly, as in binja.function("main").name = "parse_header".
 - binja.checkpoint(name) before a batch of renames, retypes or patches, and binja.rollback(name)
   to undo the whole batch as a unit. Rollback covers changes made through `bv` too. Checkpoints
   are for spanning calls, which is the one thing a `with` block cannot do.
@@ -62,6 +64,17 @@ for f in binja.list_functions(name_contains="auth", min_size=64):
 
 # Read the code, then act on what it says.
 print(binja.decompile("check_license"))
+
+# The methods are a starting point. binja.function() hands back the real Function object, and
+# assigning to it is a normal mutation that a checkpoint can roll back.
+f = binja.function("check_license")
+print(f.name, len(f.basic_blocks), f.total_bytes)
+f.name = "verify_license"
+
+# For anything with no method, look it up rather than guessing, then call it on `bv`.
+print(binja.search_api("symbols of type"))
+for sym in bv.get_symbols_of_type(bn.SymbolType.ImportedFunctionSymbol)[:5]:
+    print(sym.name, hex(sym.address))
 
 # The last expression comes back on its own; no print needed.
 [m["function"] for m in binja.search_decompiled("strcpy")]

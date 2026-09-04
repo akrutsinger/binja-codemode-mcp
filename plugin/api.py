@@ -155,7 +155,7 @@ class BinjaAPI:
 
             if include_xrefs:
                 try:
-                    result["xrefs_to"] = self.get_xrefs_to(func_info["name"])
+                    result["xrefs_to"] = self._callers(func_info["name"])
                 except Exception as e:
                     result["xrefs_error"] = str(e)
 
@@ -169,123 +169,6 @@ class BinjaAPI:
             "has_more": batch_end < total_count,
             "next_offset": batch_end if batch_end < total_count else None,
         }
-
-    def list_imports(self, limit: int | None = None, offset: int = 0) -> list[dict]:
-        """List imported symbols.
-
-        Returns:
-            [{name, address, namespace}, ...]
-        """
-        from binaryninja import SymbolType
-
-        results = []
-        for sym in self._bv.get_symbols_of_type(SymbolType.ImportedFunctionSymbol):
-            results.append(
-                {
-                    "name": sym.name,
-                    "address": sym.address,
-                    "namespace": sym.namespace if sym.namespace else None,
-                }
-            )
-
-        if offset:
-            results = results[offset:]
-        if limit is not None:
-            results = results[:limit]
-
-        return results
-
-    def list_exports(self, limit: int | None = None, offset: int = 0) -> list[dict]:
-        """List exported symbols.
-
-        Returns:
-            [{name, address}, ...]
-        """
-        from binaryninja import SymbolBinding, SymbolType
-
-        results = []
-        for sym in self._bv.get_symbols_of_type(SymbolType.FunctionSymbol):
-            if sym.binding == SymbolBinding.GlobalBinding:
-                results.append({"name": sym.name, "address": sym.address})
-
-        if offset:
-            results = results[offset:]
-        if limit is not None:
-            results = results[:limit]
-
-        return results
-
-    def list_segments(self, limit: int | None = None, offset: int = 0) -> list[dict]:
-        """List memory segments.
-
-        Returns:
-            [{start, end, length, readable, writable, executable}, ...]
-        """
-        results = [
-            {
-                "start": seg.start,
-                "end": seg.end,
-                "length": seg.length,
-                "readable": seg.readable,
-                "writable": seg.writable,
-                "executable": seg.executable,
-            }
-            for seg in self._bv.segments
-        ]
-
-        if offset:
-            results = results[offset:]
-        if limit is not None:
-            results = results[:limit]
-
-        return results
-
-    def list_classes(self, limit: int | None = None, offset: int = 0) -> list[str]:
-        """List class/namespace names."""
-        results = []
-        for name, t in self._bv.types:
-            if hasattr(t, "structure") and t.structure:
-                results.append(str(name))
-
-        if offset:
-            results = results[offset:]
-        if limit is not None:
-            results = results[:limit]
-
-        return results
-
-    def list_namespaces(self, limit: int | None = None, offset: int = 0) -> list[str]:
-        """List non-global namespaces."""
-        namespaces = set()
-        for sym in self._bv.get_symbols():
-            if sym.namespace:
-                namespaces.add(sym.namespace)
-        results = list(namespaces)
-
-        if offset:
-            results = results[offset:]
-        if limit is not None:
-            results = results[:limit]
-
-        return results
-
-    def list_data_items(self) -> list[dict]:
-        """List defined data labels.
-
-        Returns:
-            [{name, address}, ...]
-        """
-        from binaryninja import SymbolType
-
-        results = []
-        for sym in self._bv.get_symbols_of_type(SymbolType.DataSymbol):
-            results.append(
-                {
-                    "name": sym.name,
-                    "address": sym.address,
-                }
-            )
-        return results
 
     def decompile(self, func: str | int, il_level: str = "hlil") -> str | None:
         """Decompile function to C-like pseudocode.
@@ -347,55 +230,6 @@ class BinjaAPI:
                 text = "".join(t.text for t in instr.tokens)
                 lines.append(f"{instr.address:#x}: {text}")
         return "\n".join(lines)
-
-    def get_xrefs_to(self, func: str | int) -> list[dict]:
-        """Get cross-references to function (callers).
-
-        Returns:
-            [{from_function, from_address}, ...]
-        """
-        f = self._resolve_function(func)
-        if not f:
-            return []
-
-        results = []
-        for ref in self._bv.get_code_refs(f.start):
-            caller = self._bv.get_functions_containing(ref.address)
-            if caller:
-                results.append(
-                    {
-                        "from_function": caller[0].name,
-                        "from_address": ref.address,
-                    }
-                )
-        return results
-
-    def get_data_xrefs_to(self, addr: int) -> list[dict]:
-        """Get data references to an address: the data that points at it.
-
-        Code references are not included; get_all_xrefs() reports both.
-
-        Returns:
-            [{from_address, from_function}, ...]
-        """
-        results = []
-        for ref in self._bv.get_data_refs(addr):
-            source = self._bv.get_functions_containing(ref)
-            results.append(
-                {
-                    "from_address": ref,
-                    "from_function": source[0].name if source else None,
-                }
-            )
-        return results
-
-    def get_data_xrefs_from(self, addr: int) -> list[dict]:
-        """Get data references from an address: what the data there points at.
-
-        Returns:
-            [{to_address}, ...]
-        """
-        return [{"to_address": ref} for ref in self._bv.get_data_refs_from(addr)]
 
     def get_all_xrefs(
         self, addr: int, include_data: bool = True, include_code: bool = True
@@ -504,93 +338,6 @@ class BinjaAPI:
                 queue.append((new_path, callee))
 
         return chains
-
-    def function_at(self, addr: int | str) -> str | None:
-        """Get function name containing address.
-
-        Args:
-            addr: Address as integer or hex string (e.g., 0x1000 or "0x1000")
-        """
-        if isinstance(addr, str):
-            try:
-                addr = int(addr, 16) if addr.startswith("0x") else int(addr)
-            except ValueError:
-                return None
-
-        funcs = self._bv.get_functions_containing(addr)
-        return funcs[0].name if funcs else None
-
-    def get_comment(self, addr: int) -> str | None:
-        """Get comment at address."""
-        return self._bv.get_comment_at(addr)
-
-    def get_function_comment(self, func: str | int) -> str | None:
-        """Get function-level comment."""
-        f = self._resolve_function(func)
-        return f.comment if f else None
-
-    def get_type(self, name: str) -> str | None:
-        """Get user-defined type definition.
-
-        Args:
-            name: Type name to look up
-        """
-        t = self._bv.get_type_by_name(name)
-        return str(t) if t else None
-
-    def read_bytes(self, addr: int, length: int) -> bytes | None:
-        """Read raw bytes from address."""
-        try:
-            data = self._bv.read(addr, length)
-            return data if data else None
-        except Exception:
-            return None
-
-    def read_string(self, addr: int, max_length: int = 256) -> str | None:
-        """Read null-terminated string from address."""
-        try:
-            data = self._bv.read(addr, max_length)
-            if not data:
-                return None
-            # Find null terminator
-            null_idx = data.find(b"\x00")
-            if null_idx >= 0:
-                data = data[:null_idx]
-            # Try to decode as UTF-8, fallback to latin-1
-            try:
-                return data.decode("utf-8")
-            except UnicodeDecodeError:
-                return data.decode("latin-1", errors="replace")
-        except Exception:
-            return None
-
-    def get_data_var_at(self, addr: int) -> dict | None:
-        """Get data variable info at address.
-
-        Returns:
-            {address, type, name}
-        """
-        try:
-            var = self._bv.get_data_var_at(addr)
-            if var:
-                return {
-                    "address": var.address,
-                    "type": str(var.type) if var.type else None,
-                    "name": var.name if hasattr(var, "name") else None,
-                }
-            return None
-        except Exception:
-            return None
-
-    def get_string_at(self, addr: int) -> str | None:
-        """Get string defined at address (if any)."""
-        try:
-            string_ref = self._bv.get_string_at(addr)
-            if string_ref:
-                return str(string_ref)
-            return None
-        except Exception:
-            return None
 
     def get_function_calls(self, func: str | int) -> list[dict]:
         """Get list of functions called by this function.
@@ -831,41 +578,21 @@ class BinjaAPI:
             "edges": edges,
         }
 
+    def function(self, func: str | int):
+        """Get the Function object for a name or an address, for work these methods do not cover.
+
+        The real Binary Ninja object, not a rendered dict: read and assign its attributes
+        directly, as in binja.function("main").name = "parse_header". Every `func` argument
+        below accepts the same name-or-address forms.
+
+        Returns:
+            A binaryninja.Function, or None if nothing resolves
+        """
+        return self._resolve_function(func)
+
     # =========================================================================
     # Mutation Operations (tracked)
     # =========================================================================
-
-    def rename_function(self, func: str | int, new_name: str) -> bool:
-        """Rename a function."""
-        f = self._resolve_function(func)
-        if not f:
-            return False
-
-        f.name = new_name
-        return True
-
-    def rename_data(self, addr: int, new_name: str) -> bool:
-        """Rename data label at address."""
-        from binaryninja import Symbol
-
-        sym = self._bv.get_symbol_at(addr)
-        if not sym:
-            return False
-
-        self._bv.define_user_symbol(Symbol(sym.type, addr, new_name))
-        return True
-
-    def rename_variable(self, func: str | int, old_name: str, new_name: str) -> bool:
-        """Rename variable within function."""
-        f = self._resolve_function(func)
-        if not f:
-            return False
-
-        for var in f.vars:
-            if var.name == old_name:
-                var.name = new_name
-                return True
-        return False
 
     def retype_variable(self, func: str | int, var_name: str, new_type: str) -> bool:
         """Change variable type within function."""
@@ -882,127 +609,6 @@ class BinjaAPI:
                 var.type = parsed_type
                 return True
         return False
-
-    def set_comment(self, addr: int, comment: str) -> bool:
-        """Set comment at address."""
-        self._bv.set_comment_at(addr, comment)
-        return True
-
-    def set_function_comment(self, func: str | int, comment: str) -> bool:
-        """Set function-level comment."""
-        f = self._resolve_function(func)
-        if not f:
-            return False
-
-        f.comment = comment
-        return True
-
-    def delete_comment(self, addr: int) -> bool:
-        """Delete comment at address."""
-        self._bv.set_comment_at(addr, "")
-        return True
-
-    def delete_function_comment(self, func: str | int) -> bool:
-        """Delete function comment."""
-        f = self._resolve_function(func)
-        if not f:
-            return False
-
-        f.comment = ""
-        return True
-
-    def bulk_rename(self, mapping: dict[str, str], target_type: str = "function") -> dict:
-        """Rename multiple items at once.
-
-        Args:
-            mapping: Dict of {old_name: new_name}
-            target_type: Type of items to rename - 'function' or 'data'. Variables are not
-                         renameable in bulk: a variable name only identifies one inside a
-                         function, so use rename_variable() per function.
-
-        Returns:
-            {success_count, failed: [{old_name, new_name, error}], total}
-        """
-        if target_type not in ("function", "data"):
-            # Raised rather than reported per entry: the caller named a mode that does not
-            # exist, so every entry would fail for the same reason.
-            raise BinjaAPIError(
-                f"unsupported target_type {target_type!r}; expected 'function' or 'data'"
-            )
-
-        results = {"success_count": 0, "failed": [], "total": len(mapping)}
-
-        for old_name, new_name in mapping.items():
-            try:
-                if target_type == "function":
-                    success = self.rename_function(old_name, new_name)
-                else:
-                    # Try to parse as address
-                    try:
-                        addr = int(old_name, 16) if old_name.startswith("0x") else int(old_name)
-                        success = self.rename_data(addr, new_name)
-                    except ValueError:
-                        success = False
-
-                if success:
-                    results["success_count"] += 1
-                else:
-                    results["failed"].append(
-                        {
-                            "old_name": old_name,
-                            "new_name": new_name,
-                            "error": "Rename failed",
-                        }
-                    )
-            except Exception as e:
-                results["failed"].append(
-                    {"old_name": old_name, "new_name": new_name, "error": str(e)}
-                )
-
-        return results
-
-    def batch_set_types(self, updates: list[dict]) -> dict:
-        """Apply multiple type changes at once.
-
-        Args:
-            updates: List of type updates, each dict should have:
-                     {type: 'function'|'variable', target: str|int, signature|var_type: str, ...}
-
-        Returns:
-            {success_count, failed: [{update, error}], total}
-        """
-        results = {"success_count": 0, "failed": [], "total": len(updates)}
-
-        for update in updates:
-            try:
-                update_type = update.get("type")
-                target = update.get("target")
-
-                if update_type == "function":
-                    signature = update.get("signature")
-                    if signature:
-                        success = self.set_function_signature(target, signature)
-                    else:
-                        success = False
-                elif update_type == "variable":
-                    func = update.get("function")
-                    var_name = update.get("variable")
-                    var_type = update.get("var_type")
-                    if func and var_name and var_type:
-                        success = self.retype_variable(func, var_name, var_type)
-                    else:
-                        success = False
-                else:
-                    success = False
-
-                if success:
-                    results["success_count"] += 1
-                else:
-                    results["failed"].append({"update": update, "error": "Type update failed"})
-            except Exception as e:
-                results["failed"].append({"update": update, "error": str(e)})
-
-        return results
 
     def define_type(self, c_definition: str) -> bool:
         """Define type from C syntax."""
@@ -1289,6 +895,23 @@ class BinjaAPI:
     # Helpers
     # =========================================================================
 
+    def _callers(self, func: str | int) -> list[dict]:
+        """Who calls this function, as [{from_function, from_address}, ...].
+
+        Private because bv.get_code_refs() is the general form and discovery surfaces it;
+        analyze_functions_batch() needs the rendered shape for its include_xrefs option.
+        """
+        f = self._resolve_function(func)
+        if not f:
+            return []
+
+        results = []
+        for ref in self._bv.get_code_refs(f.start):
+            caller = self._bv.get_functions_containing(ref.address)
+            if caller:
+                results.append({"from_function": caller[0].name, "from_address": ref.address})
+        return results
+
     def _resolve_function(self, func: str | int, raise_on_error: bool = False):
         """Resolve function by name or address.
 
@@ -1345,83 +968,6 @@ class BinjaAPI:
     # =========================================================================
     # Common analysis patterns
     # =========================================================================
-    def find_functions_calling_unsafe(
-        self, unsafe_patterns: list[str] | None = None
-    ) -> list[dict[str, Any]]:  # Changed return type for consistency
-        """Find all functions calling potentially unsafe functions.
-
-        Args:
-            unsafe_patterns: List of function name patterns (default: common unsafe funcs)
-
-        Returns:
-            [{function_name, address, unsafe_calls}, ...]
-        """
-        if unsafe_patterns is None:
-            unsafe_patterns = [
-                "strcpy",
-                "strcat",
-                "sprintf",
-                "gets",
-                "scanf",
-                "memcpy",
-                "memmove",
-                "malloc",
-                "free",
-                "realloc",
-            ]
-
-        results = []
-
-        for func in self._bv.functions:
-            unsafe_calls = []
-
-            for callee in func.callees:
-                callee_name_lower = callee.name.lower()
-                for pattern in unsafe_patterns:
-                    if pattern.lower() in callee_name_lower:
-                        unsafe_calls.append(callee.name)
-                        break
-
-            if unsafe_calls:
-                results.append(
-                    {
-                        "function_name": func.name,
-                        "address": func.start,
-                        "unsafe_calls": unsafe_calls,
-                    }
-                )
-
-        return results
-
-    def get_function_complexity(self, func: str | int) -> dict | None:
-        """Get complexity metrics for a function.
-
-        Returns:
-            {name, address, size, basic_blocks, cyclomatic_complexity, callers_count, callees_count, instruction_count}
-        """
-        f = self._resolve_function(func)
-        if not f:
-            return None
-
-        # Calculate cyclomatic complexity (edges - nodes + 2)
-        if f.hlil:
-            edges = sum(len(block.outgoing_edges) for block in f.hlil.basic_blocks)
-            nodes = len(f.hlil.basic_blocks)
-            complexity = edges - nodes + 2
-        else:
-            complexity = 0
-
-        return {
-            "name": f.name,
-            "address": f.start,
-            "size": f.total_bytes,
-            "basic_blocks": len(f.basic_blocks),
-            "cyclomatic_complexity": complexity,
-            "callers_count": len(f.callers),
-            "callees_count": len(f.callees),
-            "instruction_count": sum(len(block) for block in f.basic_blocks),
-        }
-
     # =========================================================================
     # Discovery
     # =========================================================================

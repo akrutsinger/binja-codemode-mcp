@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `binja.function(name_or_addr)` - the real `Function` object rather than a rendered dict, for the
+  work the methods do not cover. `_resolve_function()` was the most useful thing in the file and
+  was reachable only indirectly, through whichever wrapper happened to accept a name or an address
 - `search_api()` and `describe()` now look at 31 Binary Ninja types rather than 6. The old list
   covered what the wrapper methods themselves used; this one covers what the model reaches for
   when it leaves the wrapper - `Variable`, `DataVariable`, `Section`, `Segment`, the IL function
@@ -68,14 +71,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_control_flow_graph()` - Export CFG structure with nodes and edges for graph analysis
 - `get_all_xrefs()` - Unified view of all code/data cross-references to/from an address
 - `find_xref_chains()` - BFS-based call chain discovery between two functions
-- `bulk_rename()` - Batch rename multiple functions/data items
-- `batch_set_types()` - Apply multiple type changes atomically
 - `patch_bytes()` - Patch bytes at address with original/patched byte tracking
 - `nop_range()` - NOP out instruction ranges
 - `assemble_at()` - Assemble instructions and patch in-place
 
 ### Removed
 
+- 28 of `BinjaAPI`'s 61 methods, taking the tool description from ~2,833 tokens to ~2,222. Binary
+  Ninja is already a Python API, so a wrapper only earns its place where it encodes an idiom that
+  is hard to guess (`decompile()` knows about `f.hlil.root.lines`), renders something awkward as
+  JSON, or filters server-side. What went:
+  - Passthroughs a single `bv` call already does: `list_imports`, `list_exports`, `list_segments`,
+    `list_data_items`, `function_at`, `get_comment`, `get_function_comment`, `get_type`,
+    `read_bytes`, `read_string`, `get_data_var_at`, `get_string_at`, `get_xrefs_to`,
+    `get_data_xrefs_to`, `get_data_xrefs_from`. Two of them (`get_string_at`, `get_data_var_at`)
+    had the same name as the `bv` method they wrapped
+  - `list_classes` and `list_namespaces`, which described one thing and returned another:
+    `list_namespaces` was annotated `list[str]` and returned `NameSpace` objects
+  - `bulk_rename` and `batch_set_types`, which were Python loops over the single-item methods. In
+    process a loop is already one round trip, so they saved nothing, and `batch_set_types` made
+    the model learn a `{type, target, signature}` dialect to avoid writing the Python it knows
+  - The mutation wrappers `rename_function`, `rename_data`, `rename_variable`, `set_comment`,
+    `delete_comment`, `set_function_comment` and `delete_function_comment`, replaced by
+    `binja.function("main").name = "x"`. Rollback still covers these, because Binary Ninja commits
+    every mutation as its own undo entry however it was made
+  - `find_functions_calling_unsafe` and `get_function_complexity`. Canned analyses are what the
+    model should be writing, and `binja.save_skill()` is where a good one belongs
 - The four MCP resources (`binja://api-reference`, `status`, `skills`, `files`). Three restated
   what `binja.get_binary_status()`, `binja.list_skills()` and `binja.list_files()` already return,
   and the fourth restated the `execute` tool description that `binja.list_methods()` re-emits from
