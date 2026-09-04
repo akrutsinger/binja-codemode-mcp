@@ -21,8 +21,6 @@ import binaryninja
 if TYPE_CHECKING:
     from binaryninja import BinaryView
 
-    from .api import BinjaAPI
-
 # Keeps a single oversized dump from swamping the model's context. The cap applies to the rendered
 # result only: the code itself always sees whole values, so an aggregate it computes is never
 # quietly taken from a truncated list.
@@ -40,16 +38,18 @@ class ExecutionResult:
 
 
 class CodeExecutor:
-    """Executes Python with the binja API, the BinaryView and the binaryninja module in scope."""
+    """Executes Python with the plugin's namespaces, the BinaryView and binaryninja in scope."""
 
     def __init__(
         self,
-        api: "BinjaAPI",
+        namespaces: dict,
         bv: "BinaryView",
         max_output_tokens: int = 6_000,
         timeout: float = 30.0,
     ):
-        self.api = api
+        # The same mapping the tool description is rendered from, so the names the model is told
+        # about are by construction the names it can actually call.
+        self.namespaces = namespaces
         self.bv = bv
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout
@@ -71,7 +71,7 @@ class CodeExecutor:
         printed = StringIO()
         body, tail = _split_trailing_expression(code)
         namespace = {
-            "binja": self.api,
+            **self.namespaces,
             "bv": self.bv,
             "bn": binaryninja,
             "print": lambda *args, **kwargs: print(*args, file=printed, **kwargs),

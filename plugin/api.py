@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from binaryninja import BinaryView
 
-    from .workspace import SkillsManager, WorkspaceManager
-
 
 class BinjaAPIError(Exception):
     """Custom exception for API errors with detailed messages."""
@@ -19,15 +17,8 @@ class BinjaAPI:
     All methods operate on the current BinaryView.
     """
 
-    def __init__(
-        self,
-        bv: "BinaryView",
-        workspace: "WorkspaceManager",
-        skills: "SkillsManager",
-    ):
+    def __init__(self, bv: "BinaryView"):
         self._bv = bv
-        self._workspace = workspace
-        self._skills = skills
         # name -> how many committed transactions deep the database was. Deliberately in memory
         # only: the undo stack outlives the session in the .bndb, so a depth saved to disk could
         # be meaningfully wrong on reload, while one held here can only be from this session.
@@ -833,65 +824,6 @@ class BinjaAPI:
         return len(self._bv.file.undo_entries)
 
     # =========================================================================
-    # Workspace Operations
-    # =========================================================================
-
-    def write_file(self, name: str, content: str) -> bool:
-        """Write content to workspace file."""
-        return self._workspace.write(name, content)
-
-    def read_file(self, name: str) -> str | None:
-        """Read content from workspace file."""
-        return self._workspace.read(name)
-
-    def list_files(self) -> list[dict]:
-        """List workspace files.
-
-        Returns:
-            [{name, size, modified}, ...]
-        """
-        return self._workspace.list()
-
-    def delete_file(self, name: str) -> bool:
-        """Delete a workspace file."""
-        return self._workspace.delete(name)
-
-    # =========================================================================
-    # Skills Operations
-    # =========================================================================
-
-    def save_skill(self, name: str, code: str, description: str) -> bool:
-        """Save reusable analysis code as a skill."""
-        return self._skills.save(name, code, description)
-
-    def load_skill(self, name: str) -> dict | None:
-        """Load a skill.
-
-        Returns:
-            {name, description, code}
-        """
-        skill = self._skills.load(name)
-        if skill:
-            return {
-                "name": skill.name,
-                "description": skill.description,
-                "code": skill.code,
-            }
-        return None
-
-    def list_skills(self) -> list[dict]:
-        """List available skills.
-
-        Returns:
-            [{name, description}, ...]
-        """
-        return self._skills.list()
-
-    def delete_skill(self, name: str) -> bool:
-        """Delete a skill."""
-        return self._skills.delete(name)
-
-    # =========================================================================
     # Helpers
     # =========================================================================
 
@@ -975,8 +907,13 @@ class BinjaAPI:
     def list_methods(self) -> str:
         """List every method callable here, with signatures and summaries."""
         from . import tools
+        from .workspace import SkillsManager, WorkspaceManager
 
-        return tools.build_api_reference(tools.api_surface(self))
+        # The classes rather than the live managers: this only renders signatures, and reaching
+        # the instances would mean holding references the API no longer has any other use for.
+        return tools.build_api_reference(
+            {"binja": self, "workspace": WorkspaceManager, "skills": SkillsManager}
+        )
 
     def search_api(self, query: str, limit: int = 40) -> list[dict]:
         """Search Binary Ninja's own API by keyword, for what the methods above do not cover.

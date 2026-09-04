@@ -29,7 +29,7 @@ class Skill:
 
 
 class WorkspaceManager:
-    """Manages workspace files for the current session."""
+    """Workspace files, for carrying results between calls."""
 
     def __init__(self, workspace_dir: Path):
         self._dir = workspace_dir
@@ -57,8 +57,15 @@ class WorkspaceManager:
 
         return path.read_text(encoding="utf-8")
 
-    def list(self) -> list[dict]:
-        """List all workspace files with metadata."""
+    def list(self) -> "list[dict]":
+        """List all workspace files with metadata.
+
+        Quoted annotation: `list` is this method's own name, so an unquoted `list[dict]` resolves
+        to the method rather than the builtin when annotations are read.
+
+        Returns:
+            [{name, size, modified}, ...]
+        """
         files = []
         for path in self._dir.iterdir():
             if path.is_file() and not path.name.startswith("."):
@@ -95,7 +102,7 @@ class WorkspaceManager:
 
 
 class SkillsManager:
-    """Manages reusable code skills that persist across sessions."""
+    """Reusable analysis code, saved across sessions."""
 
     def __init__(self, skills_dir: Path):
         self._dir = skills_dir
@@ -139,8 +146,15 @@ class SkillsManager:
         except (json.JSONDecodeError, KeyError):
             return None
 
-    def list(self) -> list[dict]:
-        """List all skills with descriptions."""
+    def list(self) -> "list[dict]":
+        """List all skills with descriptions.
+
+        Quoted annotation: `list` is this method's own name, so an unquoted `list[dict]` resolves
+        to the method rather than the builtin when annotations are read.
+
+        Returns:
+            [{name, description}, ...]
+        """
         skills = []
         for path in self._dir.glob("*.json"):
             try:

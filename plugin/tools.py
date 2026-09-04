@@ -19,8 +19,9 @@ AVAILABLE METHODS
 
 _GUIDE = """
 ENVIRONMENT
-- Three names are already in scope: `binja` carries the methods above, `bv` is the raw
-  BinaryView, and `bn` is the binaryninja module. Do not import or construct them.
+- Five names are already in scope: `binja` for analysing the binary, `workspace` for files that
+  outlive a call, `skills` for saved code, `bv` for the raw BinaryView and `bn` for the
+  binaryninja module. Do not import or construct them.
 - The methods above cover the common path and return plain JSON-friendly values. They are a
   starting point, not the boundary: `bv` and `bn` are the full Binary Ninja API and reaching for
   them is expected, not a fallback. binja.search_api(query) finds a member and
@@ -31,8 +32,8 @@ ENVIRONMENT
   expression needs no print().
 - Ending on a bare collection dumps all of it. Results are truncated at ~6,000 tokens, so
   aggregate in code and print the fields you need rather than whole rows.
-- Each call runs in a fresh namespace; nothing persists between calls. binja.write_file() and
-  binja.read_file() carry results forward, and binja.save_skill() stores code worth reusing.
+- Each call runs in a fresh namespace; nothing persists between calls. workspace.write() and
+  workspace.read() carry results forward, and skills.save() stores code worth reusing.
 - If the method list above did not reach you intact, call binja.list_methods() for the same
   signatures from inside the execution namespace.
 
@@ -95,35 +96,42 @@ _INPUT_SCHEMA = {
     "required": ["code"],
 }
 
+_OWN_MODULE = re.compile(re.escape(__name__.split(".")[0]) + r"(?:\.\w+)*\.")
 _SECTION_DIVIDER = re.compile(r"^    # =+$")
 _COMMENT = re.compile(r"^    # (.+)$")
 _METHOD_DEF = re.compile(r"^    def (\w+)\(")
 
 
-def build_tool_definition(surface):
-    """Build the tools/list entry describing every method the LLM can call."""
+def build_tool_definition(namespaces):
+    """Build the tools/list entry describing every method the LLM can call.
+
+    `namespaces` maps the name each object is bound to in the execution namespace to the object
+    itself. The executor builds its globals from the same mapping, so what the model is told it
+    can call and what it can actually call cannot drift.
+    """
     return {
         "name": TOOL_NAME,
         "description": (
-            f"{build_context_header(surface)}"
-            f"{_HEADER}{build_api_reference(surface)}\n{_GUIDE}{_EXAMPLE}"
+            f"{build_context_header(namespaces)}"
+            f"{_HEADER}{build_api_reference(namespaces)}\n{_GUIDE}{_EXAMPLE}"
         ),
         "inputSchema": _INPUT_SCHEMA,
     }
 
 
-def build_context_header(surface):
+def build_context_header(namespaces):
     """Describe the binary and session the code will run against.
 
-    Empty for an unbound surface, so the docs tooling can render the reference without a
-    BinaryView to ask.
+    Empty when the objects are classes rather than instances, so the docs tooling can render the
+    reference without a BinaryView to ask.
     """
-    if not _is_bound(surface):
+    binja = namespaces["binja"]
+    if inspect.isclass(binja):
         return ""
 
-    status = surface["get_binary_status"]()
-    skills = surface["list_skills"]()
-    checkpoints = surface["list_checkpoints"]()
+    status = binja.get_binary_status()
+    skills = namespaces["skills"].list()
+    checkpoints = binja.list_checkpoints()
     lines = [
         f"Binary: {status['filename']}",
         (
@@ -131,7 +139,10 @@ def build_context_header(surface):
             f"Functions: {status['function_count']} | "
             f"Range: {status['start']:#x}-{status['end']:#x}"
         ),
-        f"Workspace: {len(surface['list_files']())} file(s) | Skills: {len(skills)} available",
+        (
+            f"Workspace: {len(namespaces['workspace'].list())} file(s) | "
+            f"Skills: {len(skills)} available"
+        ),
     ]
     if skills:
         lines.append("Saved skills: " + ", ".join(skill["name"] for skill in skills))
@@ -152,12 +163,14 @@ def api_surface(api):
     }
 
 
-def build_api_reference(surface):
-    """Render a name -> method mapping as grouped signature lines with summaries."""
+def build_api_reference(namespaces):
+    """Render each namespace as grouped signature lines, prefixed with the name it is bound to."""
     lines = []
-    for section, names in group_by_section(surface).items():
-        lines.append(f"\n# {section}")
-        lines.extend(f"- binja.{name}{describe_method(surface[name])}" for name in names)
+    for prefix, owner in namespaces.items():
+        surface = api_surface(owner)
+        for section, names in group_by_section(owner, surface).items():
+            lines.append(f"\n# {section}")
+            lines.extend(f"- {prefix}.{name}{describe_method(surface[name])}" for name in names)
     return "\n".join(lines).lstrip("\n")
 
 
@@ -174,16 +187,18 @@ def method_summary(method):
     return f"{summary} Returns {shape}" if shape else summary
 
 
-def group_by_section(surface):
-    """Map each section comment in the API source to the methods declared under it.
+def group_by_section(owner, surface):
+    """Map each section comment in the owner's source to the methods declared under it.
 
     Grouping is read back out of the source rather than listed here, so a method added under an
-    existing section is grouped without touching this module.
+    existing section is grouped without touching this module. A class with no section dividers
+    gets one section named from its own docstring.
     """
+    cls = owner if inspect.isclass(owner) else type(owner)
     sections = {}
-    current = "API"
+    current = _default_section(cls)
     after_divider = False
-    for line in _api_source(surface).splitlines():
+    for line in inspect.getsource(cls).splitlines():
         comment = _COMMENT.match(line)
         method = _METHOD_DEF.match(line)
         if _SECTION_DIVIDER.match(line):
@@ -198,19 +213,10 @@ def group_by_section(surface):
     return sections
 
 
-def _is_bound(surface):
-    return all(hasattr(method, "__self__") for method in surface.values())
-
-
-def _api_source(surface):
-    owner = next((m.__self__ for m in surface.values() if hasattr(m, "__self__")), None)
-    return inspect.getsource(type(owner) if owner else _declaring_class(surface))
-
-
-def _declaring_class(surface):
-    method = next(iter(surface.values()))
-    module = inspect.getmodule(method)
-    return getattr(module, method.__qualname__.split(".")[0])
+def _default_section(cls):
+    """The section header for a class with no dividers: its own docstring summary."""
+    doc = [line.strip() for line in (inspect.getdoc(cls) or "").splitlines()]
+    return doc[0].rstrip(".") if doc and doc[0] else cls.__name__
 
 
 def method_signature(method):
@@ -226,4 +232,6 @@ def method_signature(method):
 
 def _name(annotation):
     rendered = annotation if isinstance(annotation, str) else inspect.formatannotation(annotation)
-    return rendered.replace("typing.", "")
+    # The plugin's own classes render fully qualified, which is a module path the model has no
+    # use for: "Skill" says what "binja_codemode_mcp.plugin.workspace.Skill" says.
+    return _OWN_MODULE.sub("", rendered).replace("typing.", "")

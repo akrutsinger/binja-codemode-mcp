@@ -61,20 +61,22 @@ class BinjaCodeModeMCP:
             self._config = components["Config"]()
             self._config.ensure_dirs()
 
-            # Initialize components
-            workspace = components["WorkspaceManager"](self._config.workspace_dir)
-            skills = components["SkillsManager"](self._config.skills_dir)
-            api = components["BinjaAPI"](bv, workspace, skills)
+            # What the executed code gets as globals, and what the tool description is rendered
+            # from. One mapping feeds both, so the two cannot disagree.
+            namespaces = {
+                "binja": components["BinjaAPI"](bv),
+                "workspace": components["WorkspaceManager"](self._config.workspace_dir),
+                "skills": components["SkillsManager"](self._config.skills_dir),
+            }
             executor = components["CodeExecutor"](
-                api,
+                namespaces,
                 bv,
                 max_output_tokens=self._config.max_output_tokens,
                 timeout=self._config.execution_timeout_s,
             )
 
             def get_tools():
-                surface = components["tools"].api_surface(api)
-                return [components["tools"].build_tool_definition(surface)]
+                return [components["tools"].build_tool_definition(namespaces)]
 
             self._server = components["MCPServer"](executor, self._config, get_tools)
             url = self._server.start()

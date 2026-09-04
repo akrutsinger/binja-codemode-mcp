@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `workspace` and `skills` are their own names in the execution namespace rather than eight
+  delegating methods on `binja`: `binja.write_file(name, content)` is now `workspace.write(name,
+  content)`, `binja.save_skill(...)` is `skills.save(...)`, and so on. The delegations were the
+  same pattern as the `bv` passthroughs removed above - a rename of an existing Python API - and
+  they narrowed it, leaving `WorkspaceManager.clear()` and `SkillsManager.get_code()` implemented
+  but unreachable. Both are now callable
+- The execution namespace and the tool description are built from one mapping of name to object,
+  so a name the model is told about is by construction a name it can call. `BinjaAPI` no longer
+  takes the workspace or the skills manager, and the reference renderer no longer hardcodes the
+  `binja.` prefix
 - There is one MCP tool, `execute`. `checkpoint` and `rollback` were separate tools; they are now
   `binja.checkpoint(name)` and `binja.rollback(name)`, callable from the code the model is already
   writing, alongside a new `binja.list_checkpoints()`. A code-mode server that also ships bespoke
@@ -125,6 +135,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `WorkspaceManager.list()` and `SkillsManager.list()` had annotations that could not be read. The
+  method is named `list`, so under PEP 649's lazy evaluation the `list[dict]` return annotation
+  resolved to the method itself and raised `TypeError`. Latent until something introspected those
+  classes, which the namespace split does
 - `describe()` no longer refuses a bare name that sits on more than one type. Widening the
   discovery roots took the share of ambiguous bare names from 6% to 29%, so a third of lookups
   would have cost a round trip to learn a qualification the caller usually did not care about.

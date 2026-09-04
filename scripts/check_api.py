@@ -16,8 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT.parent))
 
 from binja_codemode_mcp.plugin import tools  # noqa: E402
-from binja_codemode_mcp.plugin.api import BinjaAPI  # noqa: E402
-from generate_docs import README, render_markdown, splice  # noqa: E402
+from generate_docs import NAMESPACES, README, render_markdown, splice  # noqa: E402
 
 CHARS_PER_TOKEN = 4
 
@@ -39,21 +38,24 @@ def undocumented(surface):
 
 
 def main():
-    surface = tools.api_surface(BinjaAPI)
-    problems = undocumented(surface)
+    problems, count = [], 0
+    for prefix, owner in NAMESPACES.items():
+        surface = tools.api_surface(owner)
+        count += len(surface)
+        problems += [(f"{prefix}.{name}", complaint) for name, complaint in undocumented(surface)]
     for name, complaint in problems:
         print(f"FAIL {name}: {complaint}")
 
-    description = tools.build_tool_definition(surface)["description"]
+    description = tools.build_tool_definition(NAMESPACES)["description"]
     print(
-        f"{len(surface)} methods | tool description {len(description):,} chars "
+        f"{count} methods | tool description {len(description):,} chars "
         f"(~{len(description) // CHARS_PER_TOKEN:,} tokens)"
     )
 
     stale = False
     if "--check" in sys.argv:
         text = README.read_text()
-        stale = splice(text, render_markdown(surface)) != text
+        stale = splice(text, render_markdown(NAMESPACES)) != text
         if stale:
             print("FAIL README.md API section is stale; run scripts/generate_docs.py")
 
