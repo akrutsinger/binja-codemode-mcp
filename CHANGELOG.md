@@ -13,12 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the `execute` tool description, where it is always in context. Previously it was hand-written
   in `stubs.py` and offered as an MCP resource that most clients never read. Adding a method to
   `BinjaAPI` now advertises it automatically, and signatures cannot drift from the code
+- Output is now capped on a token budget (`max_output_tokens`, default 6,000) rather than
+  `max_output_bytes` (100,000, roughly 25,000 tokens). An over-budget result says what the whole
+  result would have cost and how to narrow it, instead of just "(output truncated)"
+- `print()` no longer stamps `[0.0s]` on every line, which taxed every printed row
 - The MCP bridge fetches its tool definitions and version from the plugin rather than hardcoding
   them, so the plugin is the only place a tool is defined. With Binary Ninja not running, the
   bridge advertises `execute` with a description saying how to start the server
 
 ### Added
 
+- The value of a trailing bare expression is returned alongside anything printed, so a result no
+  longer has to be wrapped in `print()`
 - `bv` and `bn` are now in scope for executed code, alongside `binja` - the raw `BinaryView` and
   the `binaryninja` module. The wrapper methods are a convenience layer, not a limit
 - `list_methods()` - Re-emit the API reference from inside the execution namespace, for when the

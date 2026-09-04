@@ -6,6 +6,9 @@ process that restricting the rest would not buy anything. Binding to localhost a
 API key are the boundary.
 """
 
+import ast
+import json
+import math
 import threading
 import time
 import traceback
@@ -19,6 +22,11 @@ if TYPE_CHECKING:
     from binaryninja import BinaryView
 
     from .api import BinjaAPI
+
+# Keeps a single oversized dump from swamping the model's context. The cap applies to the rendered
+# result only: the code itself always sees whole values, so an aggregate it computes is never
+# quietly taken from a truncated list.
+CHARS_PER_TOKEN = 4
 
 
 @dataclass
@@ -38,12 +46,12 @@ class CodeExecutor:
         self,
         api: "BinjaAPI",
         bv: "BinaryView",
-        max_output_bytes: int = 100_000,
+        max_output_tokens: int = 6_000,
         timeout: float = 30.0,
     ):
         self.api = api
         self.bv = bv
-        self.max_output_bytes = max_output_bytes
+        self.max_output_tokens = max_output_tokens
         self.timeout = timeout
 
     def validate(self, code: str) -> tuple[bool, str | None]:
@@ -60,33 +68,31 @@ class CodeExecutor:
         if not is_valid:
             return ExecutionResult(success=False, output="", error=error)
 
-        stdout_capture = StringIO()
-        start_time = time.time()
-
-        def progress_print(*args, **kwargs):
-            elapsed = time.time() - start_time
-            print(f"[{elapsed:.1f}s]", *args, file=stdout_capture, **kwargs)
-
+        printed = StringIO()
+        body, tail = _split_trailing_expression(code)
         namespace = {
             "binja": self.api,
             "bv": self.bv,
             "bn": binaryninja,
-            "print": progress_print,
+            "print": lambda *args, **kwargs: print(*args, file=printed, **kwargs),
         }
 
-        result_holder = {"result": None, "error": None}
+        start_time = time.time()
+        result_holder = {"value": None, "error": None}
 
         def run_code():
             try:
                 # One dict for globals and locals: with separate ones, a function defined by the
                 # code cannot see the names the code assigned, since its body resolves globals.
-                exec(code, namespace)
-                result_holder["result"] = stdout_capture.getvalue()
+                exec(compile(body, "<mcp>", "exec"), namespace)
+                if tail is not None:
+                    result_holder["value"] = eval(
+                        compile(tail, "<mcp>", "eval"), namespace
+                    )
             except Exception as e:
                 result_holder["error"] = (
                     f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
                 )
-                result_holder["result"] = stdout_capture.getvalue()
 
         thread = threading.Thread(target=run_code)
         thread.start()
@@ -96,23 +102,53 @@ class CodeExecutor:
             elapsed = time.time() - start_time
             return ExecutionResult(
                 success=False,
-                output=stdout_capture.getvalue(),
-                error=f"Execution timed out after {elapsed:.1f}s\n"
-                f"(Timeout limit: {self.timeout}s)\n"
-                f"Partial output shown above.\n"
-                f"Suggestion: Use batch processing or reduce iteration size.",
+                output=self._truncate(printed.getvalue()),
+                error=f"Execution timed out after {elapsed:.1f}s "
+                f"(limit: {self.timeout}s). Any output before the timeout is shown above. "
+                f"Narrow the work: use the batch methods, a smaller range, or fewer functions.",
                 timed_out=True,
             )
 
         if result_holder["error"]:
             return ExecutionResult(
                 success=False,
-                output=result_holder["result"] or "",
+                output=self._truncate(printed.getvalue()),
                 error=result_holder["error"],
             )
 
-        output = result_holder["result"] or ""
-        if len(output) > self.max_output_bytes:
-            output = output[: self.max_output_bytes] + "\n... (output truncated)"
+        return ExecutionResult(
+            success=True,
+            output=self._truncate(_render(printed.getvalue(), result_holder["value"])),
+            error=None,
+        )
 
-        return ExecutionResult(success=True, output=output, error=None)
+    def _truncate(self, text: str) -> str:
+        limit = self.max_output_tokens * CHARS_PER_TOKEN
+        if len(text) <= limit:
+            return text
+        # Report what the whole result would have cost rather than what was dropped: the model
+        # needs the size of its mistake to judge how much further to narrow.
+        estimated = math.ceil(len(text) / CHARS_PER_TOKEN)
+        return (
+            f"{text[:limit]}\n\n--- TRUNCATED ---\n"
+            f"This result was ~{estimated:,} tokens (limit: {self.max_output_tokens:,}). "
+            f"Return a summary rather than the rows: aggregate with len() or "
+            f"collections.Counter(), or project only the fields you need."
+        )
+
+
+def _split_trailing_expression(code: str) -> tuple[ast.Module, ast.Expression | None]:
+    """Peel off a trailing bare expression so its value can come back without a print()."""
+    module = ast.parse(code)
+    if module.body and isinstance(module.body[-1], ast.Expr):
+        return module, ast.Expression(module.body.pop().value)
+    return module, None
+
+
+def _render(printed: str, value) -> str:
+    parts = []
+    if printed.strip():
+        parts.append(printed.rstrip())
+    if value is not None:
+        parts.append(json.dumps(value, indent=2, default=repr))
+    return "\n".join(parts) if parts else "Success (nothing printed, no value)."

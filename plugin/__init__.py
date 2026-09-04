@@ -71,7 +71,7 @@ class BinjaCodeModeMCP:
             executor = components["CodeExecutor"](
                 api,
                 bv,
-                max_output_bytes=self._config.max_output_bytes,
+                max_output_tokens=self._config.max_output_tokens,
                 timeout=self._config.execution_timeout_s,
             )
 

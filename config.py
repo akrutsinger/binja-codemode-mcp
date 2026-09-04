@@ -70,7 +70,7 @@ class Config:
 
     # Execution settings
     enable_state_tracking: bool = True
-    max_output_bytes: int = 100_000
+    max_output_tokens: int = 6_000
     execution_timeout_s: float = 30.0  # seconds
 
     # Persistence settings
