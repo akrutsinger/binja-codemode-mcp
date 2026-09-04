@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the `execute` tool description, where it is always in context. Previously it was hand-written
   in `stubs.py` and offered as an MCP resource that most clients never read. Adding a method to
   `BinjaAPI` now advertises it automatically, and signatures cannot drift from the code
+- The MCP bridge fetches its tool definitions and version from the plugin rather than hardcoding
+  them, so the plugin is the only place a tool is defined. With Binary Ninja not running, the
+  bridge advertises `execute` with a description saying how to start the server
 
 ### Added
 

@@ -74,12 +74,11 @@ class BinjaCodeModeMCP:
                 timeout=self._config.execution_timeout_s,
             )
 
-            def get_tools(self=None):
+            def get_tools():
                 surface = components["tools"].api_surface(api)
-                definition = components["tools"].build_tool_definition(
+                return components["tools"].build_tool_definitions(
                     surface, state.get_summary()
                 )
-                return [definition]
 
             self._server = components["MCPServer"](
                 api, state, executor, workspace, skills, self._config, get_tools

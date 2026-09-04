@@ -33,6 +33,25 @@ sys.excepthook = excepthook
 SERVER_URL = os.environ.get("BINJA_MCP_URL", "http://127.0.0.1:42069")
 API_KEY = os.environ.get("BINJA_MCP_KEY", "binja-codemode-local")
 
+# Clients ask for the tool list once, at startup, which is usually before Binary Ninja is running.
+# Advertising the tool anyway keeps it visible, and says how to bring the real one up.
+OFFLINE_TOOLS = [
+    {
+        "name": "execute",
+        "description": (
+            "Execute Python against the binary open in Binary Ninja. Binary Ninja is not "
+            "reachable right now, so the API reference is unavailable. Open a binary, run "
+            "Plugins > MCP Code Mode > Start Server, then reconnect this MCP server to get "
+            "the full method list."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"code": {"type": "string", "description": "Python code."}},
+            "required": ["code"],
+        },
+    }
+]
+
 
 def make_request(method: str, path: str, data: Optional[dict] = None) -> dict:
     """Make HTTP request to Binary Ninja server."""
@@ -79,12 +98,7 @@ def write_message(msg: dict):
 
 def handle_initialize(params: dict) -> dict:
     """Handle MCP initialize request."""
-    # Fetch binary status to include in initialization
-    try:
-        status = make_request("GET", "/status")
-        binary_info = status.get("binary", {})
-    except Exception:
-        binary_info = {}
+    status = make_request("GET", "/status")
 
     return {
         "protocolVersion": "2024-11-05",
@@ -94,67 +108,23 @@ def handle_initialize(params: dict) -> dict:
         },
         "serverInfo": {
             "name": "binja-codemode-mcp",
-            "version": "0.1.3",
+            "version": status.get("version", "unknown"),
         },
         "_meta": {
             "description": "Binary Ninja Code Mode MCP Server for LLM-assisted reverse engineering",
-            "binary": binary_info,
-            "note": "Read the 'binja://api-reference' resource immediately to get full API documentation",
+            "binary": status.get("binary", {}),
         },
     }
 
 
 def handle_list_tools(params: dict) -> dict:
-    """Return available tools."""
-    return {
-        "tools": [
-            {
-                "name": "execute",
-                "description": (
-                    "Execute Python analysis code against the current binary. "
-                    "Use the `binja` object for all operations. "
-                    "Output via print() is captured and returned. "
-                    "See the 'Binary Ninja API Reference' resource for complete API documentation."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "code": {
-                            "type": "string",
-                            "description": "Python code to execute",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "What this code does",
-                        },
-                    },
-                    "required": ["code"],
-                },
-            },
-            {
-                "name": "checkpoint",
-                "description": "Create a named checkpoint for potential rollback",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "Checkpoint name"}
-                    },
-                    "required": ["name"],
-                },
-            },
-            {
-                "name": "rollback",
-                "description": "Rollback to a previous checkpoint",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "Checkpoint name"}
-                    },
-                    "required": ["name"],
-                },
-            },
-        ]
-    }
+    """Return the tools the plugin advertises, which it generates from its own API."""
+    resp = make_request("GET", "/tools")
+    tools = resp.get("tools")
+    if not tools:
+        logger.warning("Could not fetch tools from %s: %s", SERVER_URL, resp.get("error"))
+        return {"tools": OFFLINE_TOOLS}
+    return {"tools": tools}
 
 
 def handle_list_resources(params: dict) -> dict:
@@ -165,9 +135,8 @@ def handle_list_resources(params: dict) -> dict:
                 "uri": "binja://api-reference",
                 "name": "Binary Ninja API Reference",
                 "description": (
-                    "Complete Python API documentation for analyzing the binary. "
-                    "Includes all available binja object methods with examples. "
-                    "READ THIS FIRST to understand the full API."
+                    "The same API documentation the execute tool already carries in its "
+                    "description. Read it here only if that arrived truncated."
                 ),
                 "mimeType": "text/plain",
             },

@@ -5,6 +5,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Callable
 
+from ..config import plugin_version
+
 if TYPE_CHECKING:
     from ..config import Config
     from .api import BinjaAPI
@@ -66,6 +68,7 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "status": "running",
+                    "version": plugin_version(),
                     "binary": self.api.get_binary_status(),
                     "workspace_files": len(self.workspace.list()),
                     "skills_count": len(self.skills.list()),
@@ -177,7 +180,8 @@ class MCPServer:
         MCPRequestHandler.workspace = self.workspace
         MCPRequestHandler.skills = self.skills
         MCPRequestHandler.config = self.config
-        MCPRequestHandler.get_tools = self.get_tools
+        # staticmethod, or the attribute lookup binds it and passes the handler as an argument.
+        MCPRequestHandler.get_tools = staticmethod(self.get_tools)
 
         self._server = HTTPServer(
             (self.config.host, self.config.port), MCPRequestHandler

@@ -77,6 +77,46 @@ _COMMENT = re.compile(r"^    # (.+)$")
 _METHOD_DEF = re.compile(r"^    def (\w+)\(")
 
 
+_CHECKPOINT_TOOL = {
+    "name": "checkpoint",
+    "description": (
+        "Name the current state of the database so a later rollback can return to it. Take one "
+        "before any batch of renames, retypes or patches."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Checkpoint name."},
+        },
+        "required": ["name"],
+    },
+}
+
+_ROLLBACK_TOOL = {
+    "name": "rollback",
+    "description": (
+        "Undo every change made since the named checkpoint, discarding any checkpoints taken "
+        "after it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Checkpoint to return to."},
+        },
+        "required": ["name"],
+    },
+}
+
+
+def build_tool_definitions(surface, state_summary=""):
+    """Build every tools/list entry the bridge serves."""
+    return [
+        build_tool_definition(surface, state_summary),
+        _CHECKPOINT_TOOL,
+        _ROLLBACK_TOOL,
+    ]
+
+
 def build_tool_definition(surface, state_summary=""):
     """Build the tools/list entry describing every method the LLM can call."""
     return {

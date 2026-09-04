@@ -9,6 +9,15 @@ from pathlib import Path
 DEFAULT_API_KEY = "binja-codemode-local"
 
 
+def plugin_version() -> str:
+    """Read the version from plugin.json, which is the manifest the plugin manager ships."""
+    try:
+        manifest = json.loads((Path(__file__).parent / "plugin.json").read_text())
+        return manifest.get("version", "unknown")
+    except (json.JSONDecodeError, OSError):
+        return "unknown"
+
+
 def _get_binja_user_dir() -> Path:
     """Get Binary Ninja's user directory based on platform."""
     if os.name == "nt":  # Windows
