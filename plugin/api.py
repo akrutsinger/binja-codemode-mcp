@@ -1,5 +1,6 @@
 """Binary Ninja API wrapper for LLM code execution."""
 
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -1416,3 +1417,113 @@ class BinjaAPI:
         from . import tools
 
         return tools.build_api_reference(tools.api_surface(self))
+
+    def search_api(self, query: str, limit: int = 40) -> list[dict]:
+        """Search Binary Ninja's own API by keyword, for what the methods above do not cover.
+
+        Returns:
+            [{name, kind, signature, summary}, ...] where name is what describe() accepts
+        """
+        terms = query.lower().split()
+        matches = [
+            entry
+            for name, member in _binaryninja_members().items()
+            for entry in [_describe_member(name, member)]
+            if all(
+                term in name.lower() or term in entry["summary"].lower() for term in terms
+            )
+        ]
+        matches.sort(key=lambda entry: entry["name"])
+        return matches[:limit]
+
+    def describe(self, name: str) -> dict:
+        """Full signature and docstring for one Binary Ninja API member.
+
+        Returns:
+            {name, kind, signature, doc}
+        """
+        members = _binaryninja_members()
+        if name not in members:
+            name = _resolve_member_name(name, members)
+        return _describe_member(name, members[name], summary_only=False)
+
+
+# Where search_api() and describe() look. Binary Ninja's API is large; these are the types the
+# analysis code above actually threads through, plus the module's own top-level functions.
+_DISCOVERY_ROOTS = (
+    "BinaryView",
+    "Function",
+    "BasicBlock",
+    "Type",
+    "Symbol",
+    "Architecture",
+)
+
+
+def _binaryninja_members() -> dict:
+    """Map 'Class.member' to the member, over the roots worth searching.
+
+    Read from the installed binaryninja module rather than a checked-in list, so it describes
+    whichever version is running and never needs regenerating.
+    """
+    import inspect
+
+    import binaryninja
+
+    catalog = {}
+    for root in _DISCOVERY_ROOTS:
+        cls = getattr(binaryninja, root, None)
+        if cls is None:
+            continue
+        for name, member in inspect.getmembers(cls):
+            if not name.startswith("_"):
+                catalog[f"{root}.{name}"] = member
+
+    for name, member in inspect.getmembers(binaryninja, inspect.isfunction):
+        if not name.startswith("_"):
+            catalog[f"binaryninja.{name}"] = member
+
+    return catalog
+
+
+_FORWARD_REF = re.compile(r"ForwardRef\('([^']+)'\)")
+
+
+def _describe_member(name: str, member, summary_only: bool = True) -> dict:
+    import inspect
+
+    if isinstance(member, property):
+        kind, signature = "property", ""
+        doc = inspect.getdoc(member.fget) or inspect.getdoc(member) or ""
+    else:
+        kind = "method" if callable(member) else "attribute"
+        try:
+            signature = str(inspect.signature(member))
+        except Exception:
+            # Some Binary Ninja annotations fail to resolve at introspection time. A missing
+            # signature is worth far less than losing the member from the catalogue entirely.
+            signature = ""
+        doc = inspect.getdoc(member) or ""
+
+    entry = {"name": name, "kind": kind, "signature": _FORWARD_REF.sub(r"\1", signature)}
+    if summary_only:
+        lines = [line for line in doc.splitlines() if line.strip()]
+        entry["summary"] = lines[0] if lines else ""
+    else:
+        entry["doc"] = doc
+    return entry
+
+
+def _resolve_member_name(name: str, members: dict) -> str:
+    """Accept a bare member name, so describe('get_functions_containing') works."""
+    candidates = [key for key in members if key.split(".")[-1] == name]
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        raise BinjaAPIError(
+            f"{name!r} exists on several types: {', '.join(sorted(candidates))}. "
+            f"Pass the qualified name."
+        )
+    raise BinjaAPIError(
+        f"No Binary Ninja API member named {name!r}. Use search_api() to find one."
+    )

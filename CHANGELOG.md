@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer has to be wrapped in `print()`
 - `bv` and `bn` are now in scope for executed code, alongside `binja` - the raw `BinaryView` and
   the `binaryninja` module. The wrapper methods are a convenience layer, not a limit
+- `search_api(query)` and `describe(name)` - Find and read Binary Ninja's own API by keyword,
+  introspected from the installed module rather than a checked-in list, so they describe whichever
+  version is running and never need regenerating. Together with `bv` they make a missing wrapper
+  method something the model can route around instead of a dead end
 - `list_methods()` - Re-emit the API reference from inside the execution namespace, for when the
   tool description reaches the model truncated
 - `search_decompiled()` - Search for patterns in HLIL decompiled code with regex support
