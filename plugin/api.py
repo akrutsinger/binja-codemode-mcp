@@ -38,7 +38,11 @@ class BinjaAPI:
     # =========================================================================
 
     def get_binary_status(self) -> dict[str, Any]:
-        """Get current binary metadata."""
+        """Get current binary metadata.
+
+        Returns:
+            {filename, architecture, platform, entry_point, function_count, start, end}
+        """
         return {
             "filename": self._bv.file.filename,
             "architecture": self._bv.arch.name if self._bv.arch else None,
@@ -69,7 +73,7 @@ class BinjaAPI:
             has_calls_to: Filter to functions that call this function name (default: None = no filter)
 
         Returns:
-            List of function dicts with name, address, size
+            [{name, address, size}, ...]
         """
         results = []
 
@@ -127,7 +131,7 @@ class BinjaAPI:
             has_calls_to: Filter to functions calling this function
 
         Returns:
-            dict with 'functions' list, 'total_count', 'batch_size', 'offset', 'has_more'
+            {functions, total_count, batch_size, offset, next_offset, has_more}
         """
         # Get filtered function list
         all_funcs = self.list_functions(
@@ -172,7 +176,11 @@ class BinjaAPI:
         }
 
     def list_imports(self, limit: int | None = None, offset: int = 0) -> list[dict]:
-        """List imported symbols."""
+        """List imported symbols.
+
+        Returns:
+            [{name, address, namespace}, ...]
+        """
         from binaryninja import SymbolType
 
         results = []
@@ -193,7 +201,11 @@ class BinjaAPI:
         return results
 
     def list_exports(self, limit: int | None = None, offset: int = 0) -> list[dict]:
-        """List exported symbols."""
+        """List exported symbols.
+
+        Returns:
+            [{name, address}, ...]
+        """
         from binaryninja import SymbolBinding, SymbolType
 
         results = []
@@ -209,7 +221,11 @@ class BinjaAPI:
         return results
 
     def list_segments(self, limit: int | None = None, offset: int = 0) -> list[dict]:
-        """List memory segments."""
+        """List memory segments.
+
+        Returns:
+            [{start, end, length, readable, writable, executable}, ...]
+        """
         results = [
             {
                 "start": seg.start,
@@ -259,7 +275,11 @@ class BinjaAPI:
         return results
 
     def list_data_items(self) -> list[dict]:
-        """List defined data labels."""
+        """List defined data labels.
+
+        Returns:
+            [{name, address}, ...]
+        """
         from binaryninja import SymbolType
 
         results = []
@@ -339,7 +359,11 @@ class BinjaAPI:
         return "\n".join(lines)
 
     def get_xrefs_to(self, func: str | int) -> list[dict]:
-        """Get cross-references to function (callers)."""
+        """Get cross-references to function (callers).
+
+        Returns:
+            [{from_function, from_address}, ...]
+        """
         f = self._resolve_function(func)
         if not f:
             return []
@@ -357,7 +381,11 @@ class BinjaAPI:
         return results
 
     def get_data_xrefs_to(self, addr: int) -> list[dict]:
-        """Get cross-references to data address."""
+        """Get cross-references to data address.
+
+        Returns:
+            [{from_function, from_address}, ...]
+        """
         results = []
         for ref in self._bv.get_code_refs(addr):
             caller = self._bv.get_functions_containing(ref.address)
@@ -371,7 +399,11 @@ class BinjaAPI:
         return results
 
     def get_data_xrefs_from(self, addr: int) -> list[dict]:
-        """Get data references from address."""
+        """Get data references from address.
+
+        Returns:
+            [{to_address}, ...]
+        """
         results = []
         for ref in self._bv.get_data_refs(addr):
             results.append({"to_address": ref})
@@ -388,12 +420,7 @@ class BinjaAPI:
             include_code: Include code references (default: True)
 
         Returns:
-            dict with 'to' and 'from' lists of references
-            {
-                'address': addr,
-                'xrefs_to': [{type: 'code'|'data', from_address, from_function}, ...],
-                'xrefs_from': [{type: 'code'|'data', to_address, to_function}, ...]
-            }
+            {address, xrefs_to: [{type, from_address, from_function}], xrefs_from: [{type, to_address, to_function}]}
         """
         xrefs_to = []
         xrefs_from = []
@@ -441,7 +468,6 @@ class BinjaAPI:
             max_depth: Maximum chain depth (default: 5)
 
         Returns:
-            List of call chains, each chain is a list of dicts
             [[{function, address}, ...], ...]
         """
         # Get functions at addresses
@@ -560,7 +586,11 @@ class BinjaAPI:
             return None
 
     def get_data_var_at(self, addr: int) -> dict | None:
-        """Get data variable info at address."""
+        """Get data variable info at address.
+
+        Returns:
+            {address, type, name}
+        """
         try:
             var = self._bv.get_data_var_at(addr)
             if var:
@@ -584,7 +614,11 @@ class BinjaAPI:
             return None
 
     def get_function_calls(self, func: str | int) -> list[dict]:
-        """Get list of functions called by this function."""
+        """Get list of functions called by this function.
+
+        Returns:
+            [{to_function, to_address}, ...]
+        """
         f = self._resolve_function(func)
         if not f:
             return []
@@ -630,7 +664,11 @@ class BinjaAPI:
         return results
 
     def get_basic_blocks(self, func: str | int) -> list[dict]:
-        """Get basic block info for function."""
+        """Get basic block info for function.
+
+        Returns:
+            [{start, end, length, instruction_count}, ...]
+        """
         f = self._resolve_function(func)
         if not f:
             return []
@@ -693,7 +731,7 @@ class BinjaAPI:
             offset: Number of results to skip (default: 0)
 
         Returns:
-            List of string dicts with address, value, length, type
+            [{address, value, length, type}, ...]
         """
         results = []
         for s in self._bv.strings:
@@ -726,7 +764,7 @@ class BinjaAPI:
             limit: Maximum results to return (default: 100, None = unlimited)
 
         Returns:
-            List of matches: [{function, address, line_number, matched_line}, ...]
+            [{function, address, line_number, matched_line}, ...]
         """
         import re as regex_module
 
@@ -782,13 +820,7 @@ class BinjaAPI:
             func: Function name or address
 
         Returns:
-            dict with 'nodes' and 'edges' lists, or None if function not found
-            {
-                'function': name,
-                'address': addr,
-                'nodes': [{id, start, end, length}, ...],
-                'edges': [{from_id, to_id, type}, ...]
-            }
+            {function, address, nodes: [{id, start, end, length}], edges: [{from_id, to_id, type}]}
         """
         f = self._resolve_function(func)
         if not f:
@@ -933,12 +965,7 @@ class BinjaAPI:
             target_type: Type of items to rename - 'function', 'data', or 'variable'
 
         Returns:
-            dict with 'success_count', 'failed', 'total'
-            {
-                'success_count': int,
-                'failed': [{old_name, new_name, error}, ...],
-                'total': int
-            }
+            {success_count, failed: [{old_name, new_name, error}], total}
         """
         results = {"success_count": 0, "failed": [], "total": len(mapping)}
 
@@ -985,7 +1012,7 @@ class BinjaAPI:
                      {type: 'function'|'variable', target: str|int, signature|var_type: str, ...}
 
         Returns:
-            dict with 'success_count', 'failed', 'total'
+            {success_count, failed: [{update, error}], total}
         """
         results = {"success_count": 0, "failed": [], "total": len(updates)}
 
@@ -1070,7 +1097,7 @@ class BinjaAPI:
             data: Bytes to write
 
         Returns:
-            dict with 'success', 'original_bytes', 'patched_bytes', 'address'
+            {success, address, original_bytes, patched_bytes, length}, or {success: False, error, address}
         """
         try:
             original = self._bv.read(addr, len(data))
@@ -1112,7 +1139,7 @@ class BinjaAPI:
             end: End address (exclusive)
 
         Returns:
-            dict with 'success', 'bytes_patched', 'start', 'end'
+            patch_bytes shape plus {bytes_patched, start, end}
         """
         length = end - start
         if length <= 0:
@@ -1155,7 +1182,7 @@ class BinjaAPI:
             asm: Assembly instruction(s) as string (e.g., "mov eax, 1; ret")
 
         Returns:
-            dict with 'success', 'assembled_bytes', 'address', 'instructions'
+            patch_bytes shape plus {assembly, instructions}
         """
         try:
             arch = self._bv.arch
@@ -1213,7 +1240,11 @@ class BinjaAPI:
         return self._workspace.read(name)
 
     def list_files(self) -> list[dict]:
-        """List workspace files."""
+        """List workspace files.
+
+        Returns:
+            [{name, size, modified}, ...]
+        """
         return self._workspace.list()
 
     def delete_file(self, name: str) -> bool:
@@ -1229,7 +1260,11 @@ class BinjaAPI:
         return self._skills.save(name, code, description)
 
     def load_skill(self, name: str) -> dict | None:
-        """Load a skill."""
+        """Load a skill.
+
+        Returns:
+            {name, description, code}
+        """
         skill = self._skills.load(name)
         if skill:
             return {
@@ -1240,7 +1275,11 @@ class BinjaAPI:
         return None
 
     def list_skills(self) -> list[dict]:
-        """List available skills."""
+        """List available skills.
+
+        Returns:
+            [{name, description}, ...]
+        """
         return self._skills.list()
 
     def delete_skill(self, name: str) -> bool:
@@ -1320,17 +1359,7 @@ class BinjaAPI:
             unsafe_patterns: List of function name patterns (default: common unsafe funcs)
 
         Returns:
-            list of dicts with 'function_name', 'address', 'unsafe_calls'
-
-        Example:
-            [
-                {
-                    'function_name': 'main',
-                    'address': 0x1000,
-                    'unsafe_calls': ['strcpy', 'sprintf']
-                },
-                ...
-            ]
+            [{function_name, address, unsafe_calls}, ...]
         """
         if unsafe_patterns is None:
             unsafe_patterns = [
@@ -1373,8 +1402,7 @@ class BinjaAPI:
         """Get complexity metrics for a function.
 
         Returns:
-            dict with cyclomatic_complexity, basic_blocks, size, callers_count, callees_count or
-            None if function not found
+            {name, address, size, basic_blocks, cyclomatic_complexity, callers_count, callees_count, instruction_count}
         """
         f = self._resolve_function(func)
         if not f:

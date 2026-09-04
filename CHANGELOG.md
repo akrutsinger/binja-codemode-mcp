@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `set_function_signature()` now correctly validates parsed types with explicit None check
 - `find_bytes()` and `list_strings()` now default their optional arguments, matching how they have
   always been documented. `find_bytes(b"\x90")` and `list_strings()` previously raised `TypeError`
+- `get_all_xrefs()` documented its result keys as `to`/`from`; they are `xrefs_to`/`xrefs_from`
+- `analyze_functions_batch()` returns a `next_offset` key that was undocumented
 
 ## [0.1.3] - 2026-01-08
 
