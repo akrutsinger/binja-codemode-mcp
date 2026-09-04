@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `scripts/generate_docs.py` rewrites the README's API section from `plugin/api.py`, and
+  `scripts/check_api.py` fails when a public method lacks a docstring summary or a documented
+  return shape, or (with `--check`) when that README section is stale. Both run under Binary
+  Ninja's Python and print the tool description's token cost, so growth stays visible
 - The value of a trailing bare expression is returned alongside anything printed, so a result no
   longer has to be wrapped in `print()`
 - `bv` and `bn` are now in scope for executed code, alongside `binja` - the raw `BinaryView` and

@@ -184,11 +184,15 @@ def build_api_reference(surface):
 
 def describe_method(method):
     """Render one method as its signature, summary and return shape."""
+    return f"{method_signature(method)}: {method_summary(method)}"
+
+
+def method_summary(method):
+    """The docstring's first line, plus the return shape when it documents one."""
     doc = [line.strip() for line in (inspect.getdoc(method) or "").splitlines()]
     summary = doc[0] if doc and doc[0] else "(undocumented)"
     shape = doc[doc.index("Returns:") + 1] if "Returns:" in doc else ""
-    suffix = f" Returns {shape}" if shape else ""
-    return f"{_signature(method)}: {summary}{suffix}"
+    return f"{summary} Returns {shape}" if shape else summary
 
 
 def group_by_section(surface):
@@ -230,7 +234,7 @@ def _declaring_class(surface):
     return getattr(module, method.__qualname__.split(".")[0])
 
 
-def _signature(method):
+def method_signature(method):
     """Render a call signature, dropping `self` when the method is unbound."""
     parameters = list(inspect.signature(method).parameters.values())
     if parameters and parameters[0].name == "self":
