@@ -21,6 +21,7 @@ class BinjaCodeModeMCP:
         self._server = None
         self._components = None
         self._workspace_dir = None
+        self._bv = None
 
     def _lazy_import(self):
         """Lazily import components to avoid loading at registration time."""
@@ -62,6 +63,7 @@ class BinjaCodeModeMCP:
             self._config = components["Config"]()
             self._config.ensure_dirs()
             self._workspace_dir = self._config.workspace_dir_for(bv)
+            self._bv = bv
 
             # What the executed code gets as globals, and what the tool description is rendered
             # from. One mapping feeds both, so the two cannot disagree.
@@ -101,6 +103,7 @@ class BinjaCodeModeMCP:
             self._server = None
             self._config = None
             self._workspace_dir = None
+            self._bv = None
             update_status()
 
     def stop_server(self, bv):
@@ -114,6 +117,7 @@ class BinjaCodeModeMCP:
             self._server = None
             self._config = None
             self._workspace_dir = None
+            self._bv = None
             log_info("Code Mode MCP server stopped.")
             update_status()
         except Exception as e:
@@ -157,6 +161,15 @@ class BinjaCodeModeMCP:
     def is_running(self) -> bool:
         """Check if server is currently running."""
         return self._server is not None
+
+    @property
+    def served_view(self):
+        """The BinaryView the running server executes against, or None when it is not running.
+
+        One server serves one view, so a second window's binary is not reachable through it. The
+        status indicator names this one rather than reporting a bare "Running" in every window.
+        """
+        return self._bv if self._server is not None else None
 
     def register_commands(self) -> None:
         """Register plugin commands with Binary Ninja."""

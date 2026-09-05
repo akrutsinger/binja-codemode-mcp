@@ -4,6 +4,8 @@ MCP Status Widget for Binary Ninja status bar.
 Provides a clickable status indicator showing MCP server state.
 """
 
+from pathlib import Path
+
 from binaryninja import UIPluginInHeadlessError, execute_on_main_thread
 from binaryninja.log import log_debug, log_error
 
@@ -28,23 +30,47 @@ _ui_notification = None
 _plugin_instance = None
 
 
-def _get_status_text(running: bool) -> str:
-    """Get the status text for the button."""
-    if running:
-        return "🟢 MCP: Running"
-    return "🔴 MCP: Stopped"
+def _indicator_text(binary_view) -> str:
+    """What the indicator should say in a window showing `binary_view`.
+
+    A server serves the one BinaryView it was started against, so "Running" in a window showing a
+    different binary was true of the process and misleading about the window. Naming the binary
+    says which of the two it is.
+    """
+    served = _plugin_instance.served_view if _plugin_instance else None
+    if served is None:
+        return "🔴 MCP: Stopped"
+    if binary_view is not None and binary_view.file.session_id == served.file.session_id:
+        return f"🟢 MCP: {_binary_name(served)}"
+    # Not "other binary": a window with nothing open is in this branch too, and either way what
+    # the reader needs is that the server is up and not serving here. The tooltip names where.
+    return "⚪ MCP: elsewhere"
 
 
-def _create_status_indicator():
-    """Build one status indicator, for one window's status bar."""
+def _indicator_tooltip() -> str:
+    """The hover text, which has room to name the served binary in full."""
+    served = _plugin_instance.served_view if _plugin_instance else None
+    if served is None:
+        return "Click to start the MCP server"
+    return f"Serving {served.file.filename}\nClick to stop the MCP server"
+
+
+def _binary_name(binary_view) -> str:
+    """The served binary's filename, short enough to sit in a status bar."""
+    name = Path(binary_view.file.filename).name.removesuffix(".bndb")
+    return name if len(name) <= 28 else f"{name[:27]}…"
+
+
+def _create_status_indicator(binary_view):
+    """Build one status indicator, for the window showing `binary_view`."""
     button = QPushButton()
     button.setObjectName(_BUTTON)
     button.setFlat(True)
     button.setCursor(Qt.PointingHandCursor)
-    button.setToolTip("Click to start/stop MCP server")
+    button.setToolTip(_indicator_tooltip())
     button.setContentsMargins(0, 0, 0, 0)
     button.setStyleSheet("margin:0; padding:0 6px; border:0; border-radius:1px;")
-    button.setText(_get_status_text(_plugin_instance.is_running if _plugin_instance else False))
+    button.setText(_indicator_text(binary_view))
     button.clicked.connect(_on_button_click)
 
     # Wrap in container with margins
@@ -58,13 +84,13 @@ def _create_status_indicator():
     return container
 
 
-def _status_bars():
-    """The status bar of every open main window."""
+def _windows():
+    """Every open main window, as the context it belongs to and its status bar."""
     for ctx in UIContext.allContexts():
         main_window = ctx.mainWindow()
         status_bar = main_window.statusBar() if main_window else None
         if status_bar is not None:
-            yield status_bar
+            yield ctx, status_bar
 
 
 def _on_button_click():
@@ -86,29 +112,30 @@ def _on_button_click():
         log_error(f"MCP Status: Error toggling server: {e}")
 
 
+def _view_of(ctx):
+    """The BinaryView a UI context is showing, or None."""
+    view_frame = ctx.getCurrentViewFrame() if ctx else None
+    return view_frame.getCurrentBinaryView() if view_frame else None
+
+
 def _get_active_binary_view():
     """Get the currently active BinaryView from the UI context."""
-    ctx = UIContext.activeContext()
-    if ctx is None:
-        return None
-
-    view_frame = ctx.getCurrentViewFrame()
-    if view_frame is None:
-        return None
-
-    return view_frame.getCurrentBinaryView()
+    return _view_of(UIContext.activeContext())
 
 
 def _update_status_indicator():
-    """Update every window's status button to match the server state."""
+    """Update every window's status button, each for the binary that window shows."""
     if _plugin_instance is None:
         return
 
-    text = _get_status_text(_plugin_instance.is_running)
-    for status_bar in _status_bars():
+    tooltip = _indicator_tooltip()
+    for ctx, status_bar in _windows():
         indicator = status_bar.findChild(QWidget, _INDICATOR)
-        if indicator is not None:
-            indicator.findChild(QPushButton, _BUTTON).setText(text)
+        if indicator is None:
+            continue
+        button = indicator.findChild(QPushButton, _BUTTON)
+        button.setText(_indicator_text(_view_of(ctx)))
+        button.setToolTip(tooltip)
 
 
 def _on_file_closed(context, frame):
@@ -140,10 +167,10 @@ def _on_file_closed(context, frame):
 def _ensure_indicator_in_status_bar() -> bool:
     """Give every open window its own status indicator. True once at least one has one."""
     placed = False
-    for status_bar in _status_bars():
+    for ctx, status_bar in _windows():
         if status_bar.findChild(QWidget, _INDICATOR) is None:
             # Insert at position 1 (after the first default widget)
-            status_bar.insertWidget(1, _create_status_indicator(), 0)
+            status_bar.insertWidget(1, _create_status_indicator(_view_of(ctx)), 0)
             log_debug("MCP Status: Added status indicator to status bar")
         placed = True
     return placed
