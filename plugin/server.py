@@ -175,9 +175,14 @@ class MCPServer:
             raise JsonRpcError(INVALID_PARAMS, f"Tool not found: {name}")
 
         arguments = params.get("arguments") or {}
-        code = arguments.get("code") or ""
-        if not code.strip():
-            raise JsonRpcError(INVALID_PARAMS, "Argument 'code' is required")
+        if not isinstance(arguments, dict):
+            raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
+
+        code = arguments.get("code")
+        if not isinstance(code, str) or not code.strip():
+            # Checked rather than assumed: the schema says a string, but nothing enforces it, and
+            # letting a number reach .strip() reported a bad argument as a server bug.
+            raise JsonRpcError(INVALID_PARAMS, "Argument 'code' is required, as a string")
 
         # Wait out a call already in flight rather than racing it. The bound is the executor's own
         # timeout plus its interrupt grace, so the only way to miss the lock is a thread that
@@ -225,6 +230,10 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
 
     server: _BoundHTTPServer
     protocol_version = "HTTP/1.1"
+    # Without this a socket read blocks forever, so a request declaring more body than it sends
+    # parks a handler thread inside Binary Ninja for the life of the process. It also bounds an
+    # idle keep-alive, which a client reopens as it would against any other HTTP server.
+    timeout = 60
 
     def log_message(self, format, *args):
         """Suppress the default stderr logging, which Binary Ninja has no console for."""
@@ -239,6 +248,12 @@ class MCPRequestHandler(BaseHTTPRequestHandler):
             return
         if urlparse(self.path).path not in ("/", "/mcp"):
             self._send_status(404, "Not found: the MCP endpoint is /mcp")
+            return
+
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+            # Not decoded here, and reading Content-Length instead saw a body of zero and answered
+            # a parse error for a request that was well formed.
+            self._send_status(411, "Send the body with a Content-Length; chunked is not read")
             return
 
         try:
