@@ -96,11 +96,11 @@ class BinjaAPI:
     def get_all_xrefs(
         self, addr: int, include_data: bool = True, include_code: bool = True
     ) -> dict:
-        """Get all cross-references (both code and data) to/from one address.
+        """Get all cross-references (both code and data) to/from one address, not a whole function.
 
-        An address, not a function: asked for a function's entry point it reports what jumps or
-        calls there, and `xrefs_from` covers that one address rather than the whole body, so it
-        is usually empty. For what a function calls, read `binja.function(f).callees`.
+        Asked for a function's entry point it reports what jumps or calls there, and `xrefs_from`
+        covers that one address rather than the whole body, so it is usually empty. For what a
+        function calls, read `binja.function(f).callees`.
 
         Args:
             addr: Address to analyze
@@ -210,15 +210,15 @@ class BinjaAPI:
     # =========================================================================
 
     def checkpoint(self, name: str) -> bool:
-        """Name the current state of the database so a later rollback can return to it.
+        """Name the current state of the database so a later rollback can return to it. Lasts as long as the server runs.
 
         Covers changes made through `bv` directly as well as through these methods, because
         Binary Ninja commits every mutation as its own undo entry. For atomicity inside a single
         call, `with bv.undoable_transaction():` is cheaper and reverts itself on an exception.
 
-        Checkpoints live as long as the server does. Stopping it forgets them, while the undo
-        stack they point into survives in the database, so a name from before a restart is gone
-        rather than stale and rollback() answers False.
+        Stopping the server forgets the names, while the undo stack they point into survives in
+        the database, so a name from before a restart is gone rather than stale and rollback()
+        answers False.
 
         Returns:
             True, or False if a checkpoint of that name already exists
