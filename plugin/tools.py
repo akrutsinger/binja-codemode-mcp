@@ -37,7 +37,8 @@ ENVIRONMENT
 - Ending on a bare collection dumps all of it. Results are truncated at ~6,000 tokens, so
   aggregate in code and print the fields you need rather than whole rows.
 - Each call runs in a fresh namespace; nothing persists between calls. workspace.write() and
-  workspace.read() carry results forward, and skills.save() stores code worth reusing.
+  workspace.read() carry results forward, and skills.save() stores code worth reusing. Run a
+  saved one with exec(skills.get_code(name)) at the top level, which defines its names here.
 - Workspace files belong to this binary alone; another binary has its own and cannot see these.
   Skills are shared across every binary, so save code that generalises and write findings about
   this one to the workspace.
