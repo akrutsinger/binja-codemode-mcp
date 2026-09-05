@@ -113,9 +113,6 @@ class Config:
         """Directory for saved skills."""
         return self.data_dir / "skills"
 
-    # Logging
-    log_executions: bool = True
-
     def __post_init__(self):
         """Load API key from config file or use default."""
         if not self.api_key:

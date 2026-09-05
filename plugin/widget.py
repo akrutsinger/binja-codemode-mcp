@@ -127,16 +127,16 @@ def _on_file_closed(context, frame):
     threading.Thread(target=delayed_check, daemon=True).start()
 
 
-def _ensure_indicator_in_status_bar():
-    """Ensure the status indicator is present in the status bar."""
+def _ensure_indicator_in_status_bar() -> bool:
+    """Put the status indicator in the status bar. True once it is there."""
     ctx = UIContext.activeContext()
     if ctx is None:
-        return
+        return False
 
     # Get the main window, which has the status bar
     main_window = ctx.mainWindow()
     if main_window is None:
-        return
+        return False
 
     # Create button if needed
     container = _create_status_button()
@@ -144,15 +144,16 @@ def _ensure_indicator_in_status_bar():
     # Get status bar from main window
     status_bar = main_window.statusBar()
     if status_bar is None:
-        return
+        return False
 
     # Check if container is already in the status bar
     if container.parent() == status_bar:
-        return
+        return True
 
     # Insert at position 1 (after the first default widget)
     status_bar.insertWidget(1, container, 0)
     log_debug("MCP Status: Added status indicator to status bar")
+    return True
 
 
 def _timer_tick():
@@ -161,8 +162,15 @@ def _timer_tick():
 
 
 def _do_timer_tick():
-    """Perform timer tick on main thread."""
-    _ensure_indicator_in_status_bar()
+    """Install the indicator once the status bar exists, then stand down.
+
+    The status bar does not exist yet when the plugin loads, so something has to wait for it. This
+    timer was that something and then went on polling twice a second for the rest of the session,
+    although every change the indicator can show already arrives through update_status() or a UI
+    notification.
+    """
+    if _ensure_indicator_in_status_bar() and _indicator_timer is not None:
+        _indicator_timer.stop()
     _update_status_indicator()
 
 
@@ -220,19 +228,3 @@ def update_status(running: bool):
         return
 
     execute_on_main_thread(lambda: _status_button.setText(_get_status_text(running)))
-
-
-def cleanup_status_indicator():
-    """Clean up the status indicator resources."""
-    global _indicator_timer, _ui_notification, _status_button, _status_container
-
-    if _indicator_timer is not None:
-        _indicator_timer.stop()
-        _indicator_timer = None
-
-    if _ui_notification is not None:
-        UIContext.unregisterNotification(_ui_notification)
-        _ui_notification = None
-
-    _status_button = None
-    _status_container = None
