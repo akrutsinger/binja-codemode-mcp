@@ -376,18 +376,26 @@ class BinjaAPI:
     def search_api(self, query: str, limit: int = 40) -> list[dict]:
         """Search Binary Ninja's own API by keyword, for what the methods above do not cover.
 
+        Covers the classes and enums as well as their members, so an enum whose name you do not
+        know is one search away rather than a dead end.
+
         Returns:
             [{name, kind, signature, summary}, ...] where name is what describe() accepts
         """
         terms = query.lower().split()
+        entries = [
+            _describe_member(name, member) for name, member in _binaryninja_members().items()
+        ]
+        entries += [_summarise_class(name, cls) for name, cls in _binaryninja_types().items()]
         matches = [
             entry
-            for name, member in _binaryninja_members().items()
-            for entry in [_describe_member(name, member)]
-            if all(term in name.lower() or term in entry["summary"].lower() for term in terms)
+            for entry in entries
+            if all(
+                term in entry["name"].lower() or term in entry["summary"].lower() for term in terms
+            )
         ]
         matches.sort(key=lambda entry: entry["name"])
-        return matches[:limit]
+        return matches[: max(0, limit)]
 
     def describe(self, name: str) -> dict:
         """Full signature and docstring for one Binary Ninja API member, class or enum.
@@ -490,6 +498,25 @@ def _binaryninja_members() -> dict:
     return catalog
 
 
+def _binaryninja_types() -> dict:
+    """Map every class and enum the module exposes to itself, so search can match a bare type name.
+
+    The member catalogue is keyed "Class.member" and so could never match one, which left
+    search_api() unable to find a class or an enum at all - including the enums the guide tells the
+    model to look up rather than guess a member of. describe() already answers for a type; this is
+    what makes one findable without knowing its name first.
+    """
+    import inspect
+
+    import binaryninja
+
+    return {
+        name: member
+        for name, member in inspect.getmembers(binaryninja, inspect.isclass)
+        if not name.startswith("_")
+    }
+
+
 _FORWARD_REF = re.compile(r"ForwardRef\('([^']+)'\)")
 
 
@@ -516,6 +543,20 @@ def _describe_member(name: str, member, summary_only: bool = True) -> dict:
     else:
         entry["doc"] = doc
     return entry
+
+
+def _summarise_class(name: str, cls) -> dict:
+    """One search result for a class or an enum, in the shape a member's result takes."""
+    import enum
+    import inspect
+
+    doc = [line for line in (inspect.getdoc(cls) or "").splitlines() if line.strip()]
+    return {
+        "name": name,
+        "kind": "enum" if issubclass(cls, enum.Enum) else "class",
+        "signature": "",
+        "summary": doc[0] if doc else "",
+    }
 
 
 def _resolve_class_name(name: str):
