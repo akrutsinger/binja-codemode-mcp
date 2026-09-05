@@ -16,6 +16,12 @@ def _validate_name(name: str) -> bool:
         return False
     if not _VALID_FILENAME.match(name):
         return False
+    if name.startswith("."):
+        # "." and ".." name a directory rather than a file - writing to "." raised
+        # IsADirectoryError where every other rejected name answers False - and list() does not
+        # show a dotfile, so writing one put a file in the workspace the workspace never admitted
+        # to holding.
+        return False
     return ".." not in name and not name.startswith(("/", "\\"))
 
 
@@ -92,13 +98,16 @@ class WorkspaceManager:
         return True
 
     def clear(self) -> int:
-        """Clear all workspace files. Returns count deleted."""
-        count = 0
-        for path in self._dir.iterdir():
-            if path.is_file():
-                path.unlink()
-                count += 1
-        return count
+        """Clear all workspace files. Returns count deleted.
+
+        Over what list() shows, so the count matches what was there: iterating the directory
+        deleted the dotfiles list() hides and counted them, reporting more files than the
+        workspace ever admitted to having.
+        """
+        names = [entry["name"] for entry in self.list()]
+        for name in names:
+            (self._dir / name).unlink()
+        return len(names)
 
 
 class SkillsManager:

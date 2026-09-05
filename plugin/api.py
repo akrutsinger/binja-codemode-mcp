@@ -233,9 +233,9 @@ class BinjaAPI:
         answers False.
 
         Returns:
-            True, or False if a checkpoint of that name already exists
+            True, or False if the name is empty or already taken
         """
-        if name in self._checkpoints:
+        if not name or name in self._checkpoints:
             return False
         self._checkpoints[name] = self._undo_depth()
         return True
