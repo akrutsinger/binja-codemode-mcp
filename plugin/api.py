@@ -3,6 +3,8 @@
 import re
 from typing import TYPE_CHECKING
 
+from binaryninja import Function
+
 if TYPE_CHECKING:
     from binaryninja import BinaryView
 
@@ -38,7 +40,7 @@ class BinjaAPI:
     # Query Operations (read-only)
     # =========================================================================
 
-    def decompile(self, func: str | int, il_level: str = "hlil") -> str | None:
+    def decompile(self, func: "Function | str | int", il_level: str = "hlil") -> str | None:
         """Decompile function to C-like pseudocode.
 
         Args:
@@ -80,7 +82,7 @@ class BinjaAPI:
 
         return result
 
-    def get_assembly(self, func: str | int) -> str | None:
+    def get_assembly(self, func: "Function | str | int") -> str | None:
         """Get disassembly for function."""
         f = self._resolve_function(func)
         if not f:
@@ -149,12 +151,12 @@ class BinjaAPI:
 
         return {"address": addr, "xrefs_to": xrefs_to, "xrefs_from": xrefs_from}
 
-    def function(self, func: str | int):
+    def function(self, func: "Function | str | int"):
         """Get the Function object for a name or an address, for work these methods do not cover.
 
         The real Binary Ninja object, not a rendered dict: read and assign its attributes
         directly, as in binja.function("main").name = "parse_header". Every `func` argument
-        below accepts the same name-or-address forms.
+        takes the same forms, including a Function itself, so one can be passed straight on.
 
         Returns:
             A binaryninja.Function, or None if nothing resolves
@@ -175,7 +177,7 @@ class BinjaAPI:
         except Exception:
             return False
 
-    def set_function_signature(self, func: str | int, signature: str) -> bool:
+    def set_function_signature(self, func: "Function | str | int", signature: str) -> bool:
         """Set function prototype, and wait for the analysis that makes it visible.
 
         Assigning a function type only queues reanalysis, so reading the signature back in the
@@ -309,54 +311,42 @@ class BinjaAPI:
         containing = self._bv.get_functions_containing(addr)
         return containing[0] if containing else None
 
-    def _resolve_function(self, func: str | int, raise_on_error: bool = False):
-        """Resolve function by name or address.
+    def _resolve_function(self, func):
+        """Resolve a Function, a name or an address to the Function it names.
 
-        Args:
-            func: Function name or address
-            raise_on_error: If True, raise BinjaAPIError instead of returning None
+        A Function passes straight through. binja.function() hands one back and the guide says so,
+        which makes handing it to the next method the obvious next line; resolving only strings and
+        addresses turned that line into None, and the caller then read it as "no such function".
 
         Returns:
             Function object or None if not found
-
-        Raises:
-            BinjaAPIError: If raise_on_error=True and function not found
         """
+        if isinstance(func, Function):
+            return func
+
         if isinstance(func, int):
-            f = self._function_at_address(func)
-            if f is None and raise_on_error:
-                raise BinjaAPIError(f"No function found at address {func:#x}")
-            return f
-        elif isinstance(func, str):
-            # Try to parse as hex string first
-            try:
-                addr = int(func, 16) if func.startswith("0x") else int(func)
-                f = self._function_at_address(addr)
-                if f is None and raise_on_error:
-                    raise BinjaAPIError(f"No function found at address {addr:#x}")
-                return f
-            except ValueError:
-                pass  # Not an address, treat as name
+            return self._function_at_address(func)
 
-            # Search by function name
-            for f in self._bv.functions:
-                if f.name == func:
-                    return f
-
-            if raise_on_error:
-                # Suggest similar names
-                similar = [f.name for f in self._bv.functions if func.lower() in f.name.lower()]
-                if similar:
-                    suggestions = ", ".join(similar[:5])
-                    raise BinjaAPIError(f"Function '{func}' not found. Similar: {suggestions}")
-                else:
-                    raise BinjaAPIError(
-                        f"Function '{func}' not found. Use list_functions() to see available functions."
-                    )
+        if not isinstance(func, str):
             return None
 
-        # Neither string nor int
-        return None
+        # An address first, in either of the cases a hex literal gets written in.
+        try:
+            return self._function_at_address(
+                int(func, 16) if func[:2].lower() == "0x" else int(func)
+            )
+        except ValueError:
+            pass  # Not an address, treat as name
+
+        # By name through the core's index. Scanning bv.functions is linear in the size of the
+        # binary and this runs once per call, so a loop over names was quadratic in it. The exact
+        # match comes first, because the index also answers to a name a function has since been
+        # renamed away from.
+        matches = self._bv.get_functions_by_name(func)
+        for match in matches:
+            if match.name == func:
+                return match
+        return matches[0] if matches else None
 
     # =========================================================================
     # Discovery

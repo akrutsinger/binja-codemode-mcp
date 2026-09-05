@@ -45,8 +45,9 @@ ENVIRONMENT
   signatures from inside the execution namespace.
 
 USING THE API
-- Every `func` argument takes either a function name or an address, so binja.decompile("main")
-  and binja.decompile(0x401000) are the same call.
+- Every `func` argument takes a function name, an address, or a Function itself, so
+  binja.decompile("main"), binja.decompile(0x401000) and binja.decompile(binja.function("main"))
+  are the same call.
 - Addresses are ints. Write them as hex literals.
 - Many methods return None when a function or address does not resolve. Check before using.
 - binja.decompile() renders the body, whose declarations carry each variable's type already. For
@@ -234,13 +235,29 @@ def _default_section(cls):
 
 def method_signature(method):
     """Render a call signature, dropping `self` when the method is unbound."""
-    parameters = list(inspect.signature(method).parameters.values())
+    signature = inspect.signature(method)
+    parameters = list(signature.parameters.values())
     if parameters and parameters[0].name == "self":
         parameters = parameters[1:]
-    rendered = ", ".join(str(parameter) for parameter in parameters)
-    annotation = inspect.signature(method).return_annotation
+    rendered = ", ".join(_parameter(parameter) for parameter in parameters)
+    annotation = signature.return_annotation
     returns = "" if annotation is inspect.Signature.empty else f" -> {_name(annotation)}"
     return f"({rendered}){returns}"
+
+
+def _parameter(parameter):
+    """One parameter, as `name: type = default`.
+
+    Rendered here rather than by str(parameter) so the annotation goes through _name(): a quoted
+    annotation is the only way to name a Binary Ninja type without inspect rendering its whole
+    module path, and str() would show the quotes.
+    """
+    rendered = parameter.name
+    if parameter.annotation is not inspect.Parameter.empty:
+        rendered += f": {_name(parameter.annotation)}"
+    if parameter.default is not inspect.Parameter.empty:
+        rendered += f" = {parameter.default!r}"
+    return rendered
 
 
 def _name(annotation):
