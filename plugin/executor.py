@@ -132,7 +132,7 @@ class CodeExecutor:
                 # already gone back to the caller, so there is nothing to record.
                 pass
             except Exception as e:
-                result_holder["error"] = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+                result_holder["error"] = _format_exception(e)
 
         # A daemon thread, so a runaway that outlives its call cannot hold up Binary Ninja's own
         # shutdown while the interpreter waits to join it.
@@ -296,10 +296,41 @@ def _split_trailing_expression(code: str) -> tuple[ast.Module, ast.Expression | 
     return module, None
 
 
+def _format_exception(exc: BaseException) -> str:
+    """The traceback, starting at the executed code rather than at this module's own plumbing.
+
+    An exception's own line already ends a traceback, so pairing one with a `Type: message` header
+    printed the same line twice, and the frame above `<mcp>` is run_code() rather than anything the
+    caller wrote.
+    """
+    tb = exc.__traceback__
+    if tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    return "".join(traceback.format_exception(exc.with_traceback(tb)))
+
+
 def _render(printed: str, value) -> str:
     parts = []
     if printed.strip():
         parts.append(printed.rstrip())
     if value is not None:
-        parts.append(json.dumps(value, indent=2, default=repr))
+        parts.append(_as_json(value))
     return "\n".join(parts) if parts else "Success (nothing printed, no value)."
+
+
+def _as_json(value) -> str:
+    """The value as JSON, falling back to its repr when JSON cannot hold it.
+
+    `default=` covers a value json does not know but not a dict key, and nothing covers a cycle.
+    Both are ordinary things to write - `{f: len(f.basic_blocks) for f in bv.functions}` is a dict
+    keyed by Function - and raising here failed the whole call as a protocol error, discarding
+    everything it had printed and any mutation it had already made along with it.
+    """
+    try:
+        return json.dumps(value, indent=2, default=repr)
+    except Exception:
+        pass
+    try:
+        return repr(value)
+    except Exception as exc:
+        return f"<{type(value).__name__} that will not render: {exc}>"
