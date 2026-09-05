@@ -167,15 +167,21 @@ class BinjaAPI:
     # Mutation Operations (tracked)
     # =========================================================================
 
-    def define_type(self, c_definition: str) -> bool:
-        """Define type from C syntax."""
-        try:
-            types = self._bv.parse_types_from_string(c_definition)
-            for name, t in types.types.items():
-                self._bv.define_user_type(name, t)
-            return True
-        except Exception:
-            return False
+    def define_type(self, c_definition: str) -> list[str]:
+        """Define types from C syntax, and name the ones it defined.
+
+        A bare True said only that nothing raised, which C declaring no type at all satisfies:
+        `int x;` is a variable and a comment is nothing, and both answered True having defined
+        nothing. An empty list is the honest answer to those, and the parser's own diagnostic,
+        with a line and a column, is what comes back when the C does not parse.
+
+        Returns:
+            [name, ...] for each type defined, empty when the C declared none
+        """
+        parsed = self._bv.parse_types_from_string(c_definition)
+        for name, type_ in parsed.types.items():
+            self._bv.define_user_type(name, type_)
+        return [str(name) for name in parsed.types]
 
     def set_function_signature(self, func: "Function | str | int", signature: str) -> bool:
         """Set function prototype, and wait for the analysis that makes it visible.
@@ -187,25 +193,20 @@ class BinjaAPI:
         Args:
             func: Function name or address
             signature: Function signature string (e.g., "int foo(char* bar)")
+
+        Returns:
+            True, or False if the function does not resolve; a signature that does not parse raises
         """
         f = self._resolve_function(func)
         if not f:
             return False
 
-        try:
-            # parse_type_string returns (Type, str) where str is the name or (None, error_string) on
-            # failure
-            parsed_type, _ = self._bv.parse_type_string(signature)
-
-            if parsed_type is not None:
-                f.type = parsed_type
-                self._bv.update_analysis_and_wait()
-                return True
-        except Exception:
-            # If parsing fails entirely, fall through to False
-            pass
-
-        return False
+        # parse_type_string raises SyntaxError naming the line and column it gave up at. Letting it
+        # out is the entire diagnostic: caught, the caller was left a bare False to guess at.
+        parsed_type, _ = self._bv.parse_type_string(signature)
+        f.type = parsed_type
+        self._bv.update_analysis_and_wait()
+        return True
 
     # =========================================================================
     # Checkpoints
