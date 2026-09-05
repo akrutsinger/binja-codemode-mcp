@@ -205,6 +205,11 @@ content)`, `binja.save_skill(...)` is `skills.save(...)`, and so on. The delegat
 
 - A `Function` passed to any `func` argument resolved to `None`, so the call answered as though no
   such function existed - although `binja.function()` hands one back and the guide says to use it
+- Only one window had the status indicator. Binary Ninja opens more than one main window in a
+  single process and the indicator was one widget, so it moved between them rather than appearing
+  in each
+- A client hanging up mid-request printed a full traceback into Binary Ninja's log window, for what
+  is a connection ending rather than a failure
 - `get_all_xrefs()` never reported the code references leaving an address, so `xrefs_from` was
   data-only and a call site looked like it called nothing
 - `define_type()` answered True for C that declared no type at all, `int x;` and a bare comment
