@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `define_type()` returns the names it defined rather than a bool, and both mutation methods let the
+  type parser's own diagnostic through instead of answering a bare False
+- Function names resolve through Binary Ninja's index rather than a scan of `bv.functions`, which
+  was linear in the size of the binary on every call
+- A traceback no longer repeats the exception line under a header of its own, or opens on the
+  executor's own frame
+- The status-bar indicator's timer stops once the indicator is in place, rather than polling twice a
+  second for the rest of the session
 - Workspace files are per binary, under `codemode_mcp/workspace/<binary>-<digest>/`. Shared across
   binaries they were both misleading and unsafe: the `execute` tool description advertised a
   previous binary's notes as this one's context - a report on some firmware presented while
@@ -113,6 +121,10 @@ content)`, `binja.save_skill(...)` is `skills.save(...)`, and so on. The delegat
 
 ### Removed
 
+- `cleanup_status_indicator()`, which had no caller, and `Config.log_executions`, which had no
+  reader
+- `bridge/`, which held nothing but a stale `__pycache__` from the bridge that went away when the
+  plugin started speaking MCP itself
 - `decompile()`'s `// Variables:` block, which was 41% of the method's output and repeated what
   the body already says. HLIL declares each variable inline with its type at first assignment, so
   `uint32_t var_c_1` appeared in the listing and again on the line that assigns it, and most of
@@ -191,6 +203,23 @@ content)`, `binja.save_skill(...)` is `skills.save(...)`, and so on. The delegat
 
 ### Fixed
 
+- A `Function` passed to any `func` argument resolved to `None`, so the call answered as though no
+  such function existed - although `binja.function()` hands one back and the guide says to use it
+- `get_all_xrefs()` never reported the code references leaving an address, so `xrefs_from` was
+  data-only and a call site looked like it called nothing
+- `define_type()` answered True for C that declared no type at all, `int x;` and a bare comment
+  among them
+- `search_api()` could not find a class or an enum, dead-ending the lookup the guide recommends
+  exactly where a wrong enum member is a silent empty result
+- A result JSON could not hold - a dict keyed by anything but a string, or a cycle - failed the whole
+  call as a protocol error, discarding everything it had printed
+- A request declaring more body than it sent parked a handler thread for the life of the process, a
+  chunked body was answered with a parse error, and a non-string `code` was reported as a server bug
+  rather than a bad argument
+- `workspace.write(".")` raised where every other rejected name answers False, and `clear()` deleted
+  and counted the dotfiles `list()` hides
+- The manual install instructions copied `plugin/` alone, which cannot import the `config.py` beside
+  it, and the Usage step named a menu that does not exist
 - One MCP client blocked every other one, indefinitely. The server used a single-threaded
   `HTTPServer` with `protocol_version = "HTTP/1.1"`, so `serve_forever()` stayed inside the first
   connection's keep-alive loop until that client disconnected - and an MCP client holds its
