@@ -95,13 +95,13 @@ class BinjaCodeModeMCP:
                 f"  claude mcp add binja-codemode-mcp -s user --transport http {url} "
                 f'--header "Authorization: Bearer {self._config.api_key}"'
             )
-            update_status(True)
+            update_status()
         except Exception as e:
             log_error(f"Failed to start Code Mode MCP server: {e}")
             self._server = None
             self._config = None
             self._workspace_dir = None
-            update_status(False)
+            update_status()
 
     def stop_server(self, bv):
         """Stop MCP server."""
@@ -115,7 +115,7 @@ class BinjaCodeModeMCP:
             self._config = None
             self._workspace_dir = None
             log_info("Code Mode MCP server stopped.")
-            update_status(False)
+            update_status()
         except Exception as e:
             log_error(f"Failed to stop Code Mode MCP server: {e}")
 

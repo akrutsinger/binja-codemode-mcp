@@ -17,9 +17,12 @@ except (ImportError, UIPluginInHeadlessError):
     # binaryninjaui raises UIPluginInHeadlessError, which is not an ImportError.
     _HAS_UI = False
 
-# Module-level state
-_status_button = None
-_status_container = None
+# Module-level state. The indicators themselves are not held here: Binary Ninja opens more than
+# one main window in a single process, each with its own status bar, and one shared widget can only
+# be parented to one of them. Each window gets its own, found again by object name.
+_INDICATOR = "mcpStatusContainer"
+_BUTTON = "mcpStatusButton"
+
 _indicator_timer = None
 _ui_notification = None
 _plugin_instance = None
@@ -32,32 +35,36 @@ def _get_status_text(running: bool) -> str:
     return "🔴 MCP: Stopped"
 
 
-def _create_status_button():
-    """Create and configure the status button widget."""
-    global _status_button, _status_container
-
-    if _status_button is not None:
-        return _status_container
-
-    _status_button = QPushButton()
-    _status_button.setObjectName("mcpStatusButton")
-    _status_button.setFlat(True)
-    _status_button.setCursor(Qt.PointingHandCursor)
-    _status_button.setToolTip("Click to start/stop MCP server")
-    _status_button.setContentsMargins(0, 0, 0, 0)
-    _status_button.setStyleSheet("margin:0; padding:0 6px; border:0; border-radius:1px;")
-    _status_button.setText(_get_status_text(False))
-    _status_button.clicked.connect(_on_button_click)
+def _create_status_indicator():
+    """Build one status indicator, for one window's status bar."""
+    button = QPushButton()
+    button.setObjectName(_BUTTON)
+    button.setFlat(True)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setToolTip("Click to start/stop MCP server")
+    button.setContentsMargins(0, 0, 0, 0)
+    button.setStyleSheet("margin:0; padding:0 6px; border:0; border-radius:1px;")
+    button.setText(_get_status_text(_plugin_instance.is_running if _plugin_instance else False))
+    button.clicked.connect(_on_button_click)
 
     # Wrap in container with margins
-    _status_container = QWidget()
-    _status_container.setObjectName("mcpStatusContainer")
-    layout = QHBoxLayout(_status_container)
+    container = QWidget()
+    container.setObjectName(_INDICATOR)
+    layout = QHBoxLayout(container)
     layout.setContentsMargins(8, 0, 3, 0)
     layout.setSpacing(0)
-    layout.addWidget(_status_button)
+    layout.addWidget(button)
 
-    return _status_container
+    return container
+
+
+def _status_bars():
+    """The status bar of every open main window."""
+    for ctx in UIContext.allContexts():
+        main_window = ctx.mainWindow()
+        status_bar = main_window.statusBar() if main_window else None
+        if status_bar is not None:
+            yield status_bar
 
 
 def _on_button_click():
@@ -93,12 +100,15 @@ def _get_active_binary_view():
 
 
 def _update_status_indicator():
-    """Update the status button text based on server state."""
-    if _status_button is None or _plugin_instance is None:
+    """Update every window's status button to match the server state."""
+    if _plugin_instance is None:
         return
 
-    running = _plugin_instance.is_running
-    _status_button.setText(_get_status_text(running))
+    text = _get_status_text(_plugin_instance.is_running)
+    for status_bar in _status_bars():
+        indicator = status_bar.findChild(QWidget, _INDICATOR)
+        if indicator is not None:
+            indicator.findChild(QPushButton, _BUTTON).setText(text)
 
 
 def _on_file_closed(context, frame):
@@ -128,32 +138,15 @@ def _on_file_closed(context, frame):
 
 
 def _ensure_indicator_in_status_bar() -> bool:
-    """Put the status indicator in the status bar. True once it is there."""
-    ctx = UIContext.activeContext()
-    if ctx is None:
-        return False
-
-    # Get the main window, which has the status bar
-    main_window = ctx.mainWindow()
-    if main_window is None:
-        return False
-
-    # Create button if needed
-    container = _create_status_button()
-
-    # Get status bar from main window
-    status_bar = main_window.statusBar()
-    if status_bar is None:
-        return False
-
-    # Check if container is already in the status bar
-    if container.parent() == status_bar:
-        return True
-
-    # Insert at position 1 (after the first default widget)
-    status_bar.insertWidget(1, container, 0)
-    log_debug("MCP Status: Added status indicator to status bar")
-    return True
+    """Give every open window its own status indicator. True once at least one has one."""
+    placed = False
+    for status_bar in _status_bars():
+        if status_bar.findChild(QWidget, _INDICATOR) is None:
+            # Insert at position 1 (after the first default widget)
+            status_bar.insertWidget(1, _create_status_indicator(), 0)
+            log_debug("MCP Status: Added status indicator to status bar")
+        placed = True
+    return placed
 
 
 def _timer_tick():
@@ -183,12 +176,18 @@ class MCPUINotification(UIContextNotification if _HAS_UI else object):
 
     def OnViewChange(self, context, frame, type_name):
         """Called when the view changes."""
-        execute_on_main_thread(lambda: _update_status_indicator())
+        execute_on_main_thread(lambda: _on_view_change())
 
     def OnAfterCloseFile(self, context, file, frame):
         """Called after a file is closed - stop MCP server if no views remain."""
         log_debug("MCP Status: File closed, checking for remaining views")
         execute_on_main_thread(lambda: _on_file_closed(context, frame))
+
+
+def _on_view_change():
+    """A window that opened without a status bar yet gets its indicator here."""
+    _ensure_indicator_in_status_bar()
+    _update_status_indicator()
 
 
 def init_status_indicator(plugin_instance):
@@ -218,13 +217,9 @@ def init_status_indicator(plugin_instance):
     log_debug("MCP Status: Status indicator initialized")
 
 
-def update_status(running: bool):
-    """Update the status indicator.
-
-    Args:
-        running: Whether the server is running
-    """
-    if not _HAS_UI or _status_button is None:
+def update_status():
+    """Bring every window's status indicator in line with the server state."""
+    if not _HAS_UI:
         return
 
-    execute_on_main_thread(lambda: _status_button.setText(_get_status_text(running)))
+    execute_on_main_thread(_update_status_indicator)

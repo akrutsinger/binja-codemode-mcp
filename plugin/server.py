@@ -12,11 +12,15 @@ guarantee belongs on the execution, which is the thing that touches the database
 """
 
 import json
+import sys
 import threading
+import traceback
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+
+from binaryninja.log import log_error
 
 from ..config import plugin_version
 from . import tools
@@ -223,6 +227,21 @@ class _BoundHTTPServer(ThreadingHTTPServer):
 
     daemon_threads = True
     mcp: MCPServer
+
+    def handle_error(self, request, client_address):
+        """Say nothing about a client hanging up, and report anything else to Binary Ninja's log.
+
+        A client that goes away mid-request - a cancelled call, a timeout on its side, a port
+        scan - surfaces here as a broken pipe or a connection reset, which is the connection
+        ending rather than anything going wrong. socketserver prints a full traceback for each,
+        to a stderr that is Binary Ninja's log window, where a dozen of them bury whatever did
+        go wrong.
+        """
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return
+        log_error(
+            f"Code Mode MCP: request from {client_address[0]} failed\n{traceback.format_exc()}"
+        )
 
 
 class MCPRequestHandler(BaseHTTPRequestHandler):
