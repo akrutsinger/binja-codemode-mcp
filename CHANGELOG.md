@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `checkpoint()` says that checkpoints last only as long as the server does. The undo stack they
+  index into lives in the database and survives a restart, but the names do not, so a name from
+  before one is forgotten rather than stale and `rollback()` answers False
+- `get_all_xrefs()` says it is about one address rather than a function. Asked for a function's
+  entry point it reports what jumps or calls there, and `xrefs_from` covers that single address
+  rather than the body, so it reads as "this function calls nothing" when it means "nothing is
+  referenced from this one instruction". `binja.function(f).callees` is the function-level answer
 - `workspace` and `skills` are their own names in the execution namespace rather than eight
   delegating methods on `binja`: `binja.write_file(name, content)` is now `workspace.write(name,
   content)`, `binja.save_skill(...)` is `skills.save(...)`, and so on. The delegations were the
@@ -45,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `binja.delete_checkpoint(name)` - forget a checkpoint without undoing anything. `rollback()`
+  discards the checkpoints taken after the one it returns to and keeps the rest, so a session
+  that guards several batches accumulated names it would never use again, with no way to remove
+  one. Every name is listed in the `execute` tool description on each call, which is what made
+  forgetting them worth a method rather than a shrug
 - `binja.function(name_or_addr)` - the real `Function` object rather than a rendered dict, for the
   work the methods do not cover. `_resolve_function()` was the most useful thing in the file and
   was reachable only indirectly, through whichever wrapper happened to accept a name or an address

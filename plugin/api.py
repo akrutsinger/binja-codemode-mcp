@@ -96,7 +96,11 @@ class BinjaAPI:
     def get_all_xrefs(
         self, addr: int, include_data: bool = True, include_code: bool = True
     ) -> dict:
-        """Get all cross-references (both code and data) to/from an address.
+        """Get all cross-references (both code and data) to/from one address.
+
+        An address, not a function: asked for a function's entry point it reports what jumps or
+        calls there, and `xrefs_from` covers that one address rather than the whole body, so it
+        is usually empty. For what a function calls, read `binja.function(f).callees`.
 
         Args:
             addr: Address to analyze
@@ -212,6 +216,10 @@ class BinjaAPI:
         Binary Ninja commits every mutation as its own undo entry. For atomicity inside a single
         call, `with bv.undoable_transaction():` is cheaper and reverts itself on an exception.
 
+        Checkpoints live as long as the server does. Stopping it forgets them, while the undo
+        stack they point into survives in the database, so a name from before a restart is gone
+        rather than stale and rollback() answers False.
+
         Returns:
             True, or False if a checkpoint of that name already exists
         """
@@ -248,6 +256,19 @@ class BinjaAPI:
             key: depth for key, depth in self._checkpoints.items() if depth <= taken_at
         }
         return True
+
+    def delete_checkpoint(self, name: str) -> bool:
+        """Forget a checkpoint without undoing anything.
+
+        Rollback discards the checkpoints taken after the one it returns to, and keeps the rest,
+        so a session that guards several batches accumulates names it will not use again. Each
+        one is listed in this tool's description on every call, which is what makes forgetting
+        them worth a method.
+
+        Returns:
+            True, or False if no checkpoint of that name exists
+        """
+        return self._checkpoints.pop(name, None) is not None
 
     def list_checkpoints(self) -> list[dict]:
         """List saved checkpoints, oldest first.
