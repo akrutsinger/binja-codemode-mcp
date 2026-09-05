@@ -208,6 +208,10 @@ content)`, `binja.save_skill(...)` is `skills.save(...)`, and so on. The delegat
 - Only one window had the status indicator. Binary Ninja opens more than one main window in a
   single process and the indicator was one widget, so it moved between them rather than appearing
   in each
+- Closing the binary the server was serving left the server answering against it. Python holds a
+  reference, so the BinaryView stayed readable and writable while no window showed it, and the
+  check for whether to stop asked only whether some binary was still open - which a second window
+  satisfies. It now asks after the served one, over every window's tabs
 - A client hanging up mid-request printed a full traceback into Binary Ninja's log window, for what
   is a connection ending rather than a failure
 - `get_all_xrefs()` never reported the code references leaving an address, so `xrefs_from` was

@@ -148,6 +148,9 @@ Start the server before connecting the client. Clients ask for the tool list onc
 that response is what carries the API reference, so a client that connected first will not see the
 binary or the methods until it reconnects.
 
+One server serves the one binary it was started against. Other windows and tabs are not reachable
+through it - their status indicator says so - and closing the served binary stops the server.
+
 ### Example Prompts
 
 ```

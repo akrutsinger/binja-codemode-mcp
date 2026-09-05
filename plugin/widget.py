@@ -4,10 +4,12 @@ MCP Status Widget for Binary Ninja status bar.
 Provides a clickable status indicator showing MCP server state.
 """
 
+import threading
+import time
 from pathlib import Path
 
 from binaryninja import UIPluginInHeadlessError, execute_on_main_thread
-from binaryninja.log import log_debug, log_error
+from binaryninja.log import log_debug, log_error, log_info
 
 try:
     from binaryninjaui import UIContext, UIContextNotification
@@ -139,29 +141,50 @@ def _update_status_indicator():
 
 
 def _on_file_closed(context, frame):
-    """Handle file closed by stopping MCP server if no binary views remain."""
+    """Stop the server when the binary it was serving is the one that closed.
+
+    Closing a file does not free its BinaryView while the server holds a reference to it, so the
+    server went on answering and the model went on reading, renaming and patching a database
+    nobody had open. This used to ask whether any view remained, which a second window satisfies.
+    """
     if _plugin_instance is None or not _plugin_instance.is_running:
         return
 
-    # Check if there are any binary views still open after a delay
-    # This gives Binary Ninja time to switch to another tab if one exists
     def delayed_check():
-        import time
-
-        time.sleep(0.3)  # Give the UI some time to update
-
-        active_bv = _get_active_binary_view()
-
-        if active_bv is None:
-            log_debug("MCP: No binary views remain, stopping server")
-            _plugin_instance.stop_server(None)
-        else:
-            log_debug("MCP: Binary views still open, keeping server running")
+        # Binary Ninja closes the file after this notification, so let the UI settle before asking
+        # what is still open.
+        time.sleep(0.3)
+        execute_on_main_thread(_stop_if_served_binary_closed)
 
     # Run the check in a background thread to avoid blocking
-    import threading
-
     threading.Thread(target=delayed_check, daemon=True).start()
+
+
+def _served_binary_is_open() -> bool:
+    """Whether the binary the server serves still has a tab in some window.
+
+    By session id over every context's tabs rather than the view each window currently shows: the
+    served binary may sit in a background tab, and stopping the server over that would be wrong.
+    """
+    served = _plugin_instance.served_view if _plugin_instance else None
+    if served is None:
+        return False
+    session_id = served.file.session_id
+    return any(ctx.getTabForSessionId(session_id) is not None for ctx in UIContext.allContexts())
+
+
+def _stop_if_served_binary_closed():
+    """Stop the server if its binary has gone, and bring the indicators up to date either way."""
+    if _plugin_instance is None or not _plugin_instance.is_running:
+        return
+
+    if _served_binary_is_open():
+        log_debug("MCP: the served binary is still open, keeping the server running")
+        _update_status_indicator()
+        return
+
+    log_info("Code Mode MCP: the binary this server was serving was closed. Stopping the server.")
+    _plugin_instance.stop_server(None)
 
 
 def _ensure_indicator_in_status_bar() -> bool:
