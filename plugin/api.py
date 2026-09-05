@@ -54,17 +54,11 @@ class BinjaAPI:
         if not f:
             return None
 
-        lines = [f"// {f.name} @ {f.start:#x}", str(f.type)]
-
-        # Add variable definitions (only for HLIL)
-        if il_level == "hlil" and f.vars:
-            lines.append("// Variables:")
-            for var in f.vars:
-                var_type = str(var.type) if var.type else "auto"
-                lines.append(f"//   {var_type} {var.name}")
-            lines.append("")
-
-        lines.append("{")
+        # No variable listing: HLIL already declares each variable inline with its type at first
+        # assignment, so the block repeated what the body says, and most of what it named was
+        # compiler temporaries. It was 41% of this method's output. binja.function(f).vars still
+        # has them for the rare case that wants the whole set.
+        lines = [f"// {f.name} @ {f.start:#x}", str(f.type), "{"]
 
         # Handle different IL levels with their specific APIs
         if il_level == "mlil" and f.mlil:

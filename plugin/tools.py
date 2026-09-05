@@ -46,6 +46,8 @@ USING THE API
   and binja.decompile(0x401000) are the same call.
 - Addresses are ints. Write them as hex literals.
 - Many methods return None when a function or address does not resolve. Check before using.
+- binja.decompile() renders the body, whose declarations carry each variable's type already. For
+  the whole variable set including ones the body never names, read binja.function(f).vars.
 - binja.function(name_or_addr) hands back the real Function object, and `bv` reaches the rest:
   assign to its attributes directly, as in binja.function("main").name = "parse_header".
 - Assigning a function's type only queues reanalysis, so `binja.function("f").type = ...` reads

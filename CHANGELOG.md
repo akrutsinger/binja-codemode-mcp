@@ -87,6 +87,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- `decompile()`'s `// Variables:` block, which was 41% of the method's output and repeated what
+  the body already says. HLIL declares each variable inline with its type at first assignment, so
+  `uint32_t var_c_1` appeared in the listing and again on the line that assigns it, and most of
+  what the listing named was compiler temporaries - `eax_3`, `cond:0`, `__saved_esi`,
+  `var_c_1` through `var_c_14`. The parameter types worth having are on the signature line, which
+  stays. Over 40 functions the output drops 42%, about 6,800 tokens. `binja.function(f).vars`
+  still has the whole set for the rare case that wants it
 - A further 14 of `BinjaAPI`'s 26 methods, taking the tool description from ~2,300 tokens to
   ~1,742 and leaving 12. The criterion narrows: "filters server-side" was never true here, because
   the code runs in Binary Ninja's own process and a comprehension over `bv` costs no round trip.
