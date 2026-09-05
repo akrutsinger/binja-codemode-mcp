@@ -115,8 +115,10 @@ class BinjaAPI:
         xrefs_to = []
         xrefs_from = []
 
-        # Code that points at this address.
         if include_code:
+            # get_code_refs() points inward and get_code_refs_from() outward, the same split the
+            # data refs get below. Without the second, a call site reported nothing leaving it and
+            # `include_code` reached only half of what it names.
             for ref in self._bv.get_code_refs(addr):
                 caller = self._bv.get_functions_containing(ref.address)
                 xrefs_to.append(
@@ -126,10 +128,17 @@ class BinjaAPI:
                         "from_function": caller[0].name if caller else None,
                     }
                 )
+            for ref in self._bv.get_code_refs_from(addr):
+                target = self._bv.get_functions_containing(ref)
+                xrefs_from.append(
+                    {
+                        "type": "code",
+                        "to_address": ref,
+                        "to_function": target[0].name if target else None,
+                    }
+                )
 
         if include_data:
-            # get_data_refs() points inward and get_data_refs_from() outward, so they belong in
-            # different buckets.
             for ref in self._bv.get_data_refs(addr):
                 source = self._bv.get_functions_containing(ref)
                 xrefs_to.append(
