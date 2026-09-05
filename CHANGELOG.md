@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Workspace files are per binary, under `codemode_mcp/workspace/<binary>-<digest>/`. Shared
+  across binaries they were both misleading and unsafe: the `execute` tool description advertised
+  a previous binary's notes as this one's context - a report on some firmware presented while
+  analysing a game - and two sessions each writing `analysis.md` clobbered one another. The
+  directory is named for the binary and suffixed with a digest of its full path, so two files of
+  the same name do not share one and the folder can still be found by hand. Keyed on path rather
+  than contents, so moving a binary presents an empty workspace rather than costing a hash of the
+  whole file at every startup. Skills stay shared, being code meant to work on any binary, which
+  is the distinction: the workspace holds results about the binary in front of you. Files already
+  in the old shared location are left alone and named once in the log at startup, since which
+  binary each belongs to is not recoverable and guessing would file them under the wrong one
 - `checkpoint()` says that checkpoints last only as long as the server does. The undo stack they
   index into lives in the database and survives a restart, but the names do not, so a name from
   before one is forgotten rather than stale and `rollback()` answers False

@@ -20,6 +20,7 @@ class BinjaCodeModeMCP:
         self._config = None
         self._server = None
         self._components = None
+        self._workspace_dir = None
 
     def _lazy_import(self):
         """Lazily import components to avoid loading at registration time."""
@@ -60,12 +61,13 @@ class BinjaCodeModeMCP:
 
             self._config = components["Config"]()
             self._config.ensure_dirs()
+            self._workspace_dir = self._config.workspace_dir_for(bv)
 
             # What the executed code gets as globals, and what the tool description is rendered
             # from. One mapping feeds both, so the two cannot disagree.
             namespaces = {
                 "binja": components["BinjaAPI"](bv),
-                "workspace": components["WorkspaceManager"](self._config.workspace_dir),
+                "workspace": components["WorkspaceManager"](self._workspace_dir),
                 "skills": components["SkillsManager"](self._config.skills_dir),
             }
             executor = components["CodeExecutor"](
@@ -84,6 +86,8 @@ class BinjaCodeModeMCP:
             log_info("=" * 42)
             log_info("Code Mode MCP Server Started")
             log_info(f"  URL: {url}")
+            log_info(f"  Workspace: {self._workspace_dir}")
+            self._report_unclaimed_workspace_files()
             log_info(f"  API Key: {self._config.api_key}")
             log_info("=" * 42)
             log_info("Register it with an MCP client that speaks HTTP, for example:")
@@ -96,6 +100,7 @@ class BinjaCodeModeMCP:
             log_error(f"Failed to start Code Mode MCP server: {e}")
             self._server = None
             self._config = None
+            self._workspace_dir = None
             update_status(False)
 
     def stop_server(self, bv):
@@ -108,6 +113,7 @@ class BinjaCodeModeMCP:
             self._server.stop()
             self._server = None
             self._config = None
+            self._workspace_dir = None
             log_info("Code Mode MCP server stopped.")
             update_status(False)
         except Exception as e:
@@ -129,8 +135,23 @@ class BinjaCodeModeMCP:
 
         log_info("Code Mode MCP server: RUNNING")
         log_info(f"  URL: {self._server.url}")
-        log_info(f"  Workspace: {self._config.workspace_dir}")
+        log_info(f"  Workspace: {self._workspace_dir}")
         log_info(f"  Skills: {self._config.skills_dir}")
+
+    def _report_unclaimed_workspace_files(self) -> None:
+        """Point at files left in the workspace root by the versions before it was per-binary.
+
+        They are not deleted or moved: which binary each belongs to is not recoverable, and
+        guessing wrong would file someone's report under the wrong binary. Naming the directory
+        once at startup is enough for them to be moved by hand.
+        """
+        root = self._config.workspace_dir
+        stranded = [path for path in root.iterdir() if path.is_file()] if root.is_dir() else []
+        if stranded:
+            log_info(
+                f"  {len(stranded)} workspace file(s) predate per-binary workspaces and belong to "
+                f"no binary: {root}. Move them into a binary's folder to use them."
+            )
 
     @property
     def is_running(self) -> bool:

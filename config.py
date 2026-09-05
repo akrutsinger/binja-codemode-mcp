@@ -1,5 +1,7 @@
+import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,6 +34,21 @@ def _get_binja_user_dir() -> Path:
             return Path.home() / ".binaryninja"
     else:
         return Path.home() / ".binaryninja"
+
+
+def workspace_key(bv) -> str:
+    """A directory name for one binary's workspace files.
+
+    Readable first and unique second: the binary's own filename, so the directory can be found by
+    hand, followed by a digest of its full path, so two binaries with the same name do not share
+    one. Keyed on the path rather than the contents, because hashing a large binary on every
+    startup would cost more than it is worth - moving a binary presents an empty workspace, and
+    the old files are still on disk under the old name.
+    """
+    source = getattr(bv.file, "original_filename", "") or bv.file.filename or "unnamed"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:8]
+    stem = re.sub(r"[^\w.-]+", "_", Path(source).name)[:64] or "unnamed"
+    return f"{stem}-{digest}"
 
 
 def _default_data_dir() -> Path:
@@ -77,8 +94,19 @@ class Config:
 
     @property
     def workspace_dir(self) -> Path:
-        """Directory for workspace files."""
+        """Root of the per-binary workspace directories."""
         return self.data_dir / "workspace"
+
+    def workspace_dir_for(self, bv) -> Path:
+        """Where this binary's workspace files live.
+
+        Per binary, because workspace files are results about the binary in front of you: a
+        decompilation, a report, a list of candidates. Shared across binaries they were both
+        misleading - a previous binary's notes are advertised as this one's context - and unsafe,
+        since two sessions writing `analysis.md` clobbered each other. Skills stay shared, being
+        code that is meant to work on any binary.
+        """
+        return self.workspace_dir / workspace_key(bv)
 
     @property
     def skills_dir(self) -> Path:

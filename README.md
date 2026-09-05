@@ -158,7 +158,8 @@ binary or the methods until it reconnects.
 
 Executed code has five names in scope: `binja` for analysing the binary, `workspace` for files
 that outlive a call, `skills` for saved code, `bv` for the raw `BinaryView`, and `bn` for the
-`binaryninja` module. The plugin builds one mapping of those names and renders both this list and
+`binaryninja` module. Workspace files are per binary — they hold results about the binary in
+front of you — while skills are shared, being code meant to work on any of them. The plugin builds one mapping of those names and renders both this list and
 the execution namespace from it, so what the model is told it can call is what it can call.
 
 `binja` is deliberately small. What it covers is what only it can do: state that outlives a

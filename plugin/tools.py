@@ -38,6 +38,9 @@ ENVIRONMENT
   aggregate in code and print the fields you need rather than whole rows.
 - Each call runs in a fresh namespace; nothing persists between calls. workspace.write() and
   workspace.read() carry results forward, and skills.save() stores code worth reusing.
+- Workspace files belong to this binary alone; another binary has its own and cannot see these.
+  Skills are shared across every binary, so save code that generalises and write findings about
+  this one to the workspace.
 - If the method list above did not reach you intact, call binja.list_methods() for the same
   signatures from inside the execution namespace.
 
