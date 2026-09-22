@@ -35,13 +35,13 @@ After installation, the plugin will be located in the community
 
 ```bash
 # Linux
-~/.binaryninja/repositories/community/plugins/binja_codemode_mcp/
+~/.binaryninja/repositories/community/plugins/akrutsinger_binja_codemode_mcp/
 
 # macOS
-~/Library/Application Support/Binary Ninja/repositories/community/plugins/binja_codemode_mcp/
+~/Library/Application Support/Binary Ninja/repositories/community/plugins/akrutsinger_binja_codemode_mcp/
 
 # Windows
-%APPDATA%\Binary Ninja\repositories\community\plugins\binja_codemode_mcp\
+%APPDATA%\Binary Ninja\repositories\community\plugins\akrutsinger_binja_codemode_mcp\
 ```
 
 ### Method 2: Manual Installation
